@@ -1,0 +1,10 @@
+global:
+  gba_included: false
+  log_transform: false
+  pd_only: true
+
+projectids:
+  145:
+    log_transform: true
+
+testnames: {}
