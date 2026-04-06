@@ -180,7 +180,6 @@ def main() -> None:
                 omnibus_df_c, pairwise_df_c = run_biomarker_by_biomarker_cohort_regressions(
                     chunk,
                     standardize_within_biomarker=True,
-                    standardize_outcome_for_beta=True,
                     cohort_col=cohort_col,
                     testvalue_col=testvalue_col,
                     z_col=z_col,

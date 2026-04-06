@@ -313,7 +313,7 @@ def run_biomarker_by_biomarker_cohort_regressions(
     df: pd.DataFrame,
     *,
     standardize_within_biomarker: bool = True,
-    standardize_outcome_for_beta: bool = True,
+    standardize_outcome_for_beta: bool = False,
     cohort_categories: Optional[Sequence[str]] = None,
     testname_col: str = "TESTNAME",
     testvalue_col: str = "TESTVALUE",
@@ -326,8 +326,16 @@ def run_biomarker_by_biomarker_cohort_regressions(
     include_raw_mean_diff: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Run per-biomarker OLS regressions:
-      TESTVALUE_Z ~ C(cohort_col) + C(SEX) + AGE_AT_VISIT
+    Run per-biomarker OLS regressions.
+
+    With defaults (standardize_within_biomarker=True, standardize_outcome_for_beta=False):
+      - Main model: raw outcome ~ C(cohort_col) + C(SEX) + AGE_AT_VISIT
+        drives pairwise ``beta``, ``pval``, and the omnibus cohort test.
+      - Parallel model on ``z_col`` (within-biomarker z-scores) with the same
+        predictors drives ``effect_size_std``.
+
+    If ``standardize_outcome_for_beta=True``, the main model uses ``z_col`` instead,
+    so ``beta`` matches ``effect_size_std`` (aside from numerical noise).
 
     Returns:
       - omnibus_df: one row per biomarker (omnibus cohort p-value + BH q-value)

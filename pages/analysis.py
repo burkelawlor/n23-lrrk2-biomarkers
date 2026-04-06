@@ -580,7 +580,6 @@ def update_stats_table(
         omnibus_df, pairwise_df = run_biomarker_by_biomarker_cohort_regressions(
             model_df,
             standardize_within_biomarker=True,
-            standardize_outcome_for_beta=True,
             cohort_col=group_col,
             cohort_categories=cohort_categories,
             testvalue_col=testvalue_col,
