@@ -13,6 +13,7 @@ import dash_bootstrap_components as dbc
 
 from utils.biomarker_regression import run_biomarker_by_biomarker_cohort_regressions
 from utils.db import fetch_analysis_subset, get_engine, get_project_rundates_lookup, get_projects_lookup, get_testnames
+from utils.regression_config import effective_config, load_regression_configs
 
 
 dash.register_page(
@@ -111,6 +112,9 @@ ENGINE = get_engine(DB_PATH)
 PROJECTS_LOOKUP = get_projects_lookup(ENGINE)
 PROJECT_RUNDATES_LOOKUP = get_project_rundates_lookup(ENGINE)
 
+_REGRESSION_CONFIG_PATH = Path(__file__).resolve().parents[1] / "regression_configs.yaml"
+_GLOBAL_CFG, _PROJECT_CFGS, _TEST_CFGS = load_regression_configs(_REGRESSION_CONFIG_PATH)
+
 TESTNAMES = get_testnames(ENGINE)
 DEFAULT_TESTNAME = TESTNAMES[0] if TESTNAMES else None
 try:
@@ -119,6 +123,44 @@ try:
 except Exception:
     _present_cohorts = set()
 COHORT_VALUES = [c for c in COHORTS["COHORT"]["Order"] if c in _present_cohorts]
+
+
+def _modal_project_id_for_testname(testname: str) -> int | None:
+    try:
+        q = """
+        SELECT PROJECTID, COUNT(*) AS n
+        FROM analysis
+        WHERE TESTNAME = :testname AND PROJECTID IS NOT NULL
+        GROUP BY PROJECTID
+        ORDER BY n DESC
+        LIMIT 1
+        """
+        pid_df = pd.read_sql_query(q, ENGINE, params={"testname": str(testname)})
+    except Exception:
+        return None
+
+    if pid_df.empty or "PROJECTID" not in pid_df.columns:
+        return None
+    try:
+        return int(pd.to_numeric(pid_df["PROJECTID"].iloc[0], errors="coerce"))
+    except Exception:
+        return None
+
+
+def _transform_radio_value_for_testname(testname: str | None) -> str:
+    if not testname:
+        return "none"
+    cfg = effective_config(
+        project_id=_modal_project_id_for_testname(str(testname)),
+        testname=str(testname),
+        global_cfg=_GLOBAL_CFG,
+        project_cfgs=_PROJECT_CFGS,
+        test_cfgs=_TEST_CFGS,
+    )
+    return "log" if cfg.log_transform else "none"
+
+
+DEFAULT_TRANSFORM_VALUE = _transform_radio_value_for_testname(DEFAULT_TESTNAME)
 
 
 def description_card():
@@ -210,7 +252,7 @@ def generate_control_card():
                             {"label": "None", "value": "none"},
                             {"label": "log", "value": "log"},
                         ],
-                        value="log",
+                        value=DEFAULT_TRANSFORM_VALUE,
                         inline=True,
                     ),
                 ]
@@ -236,6 +278,11 @@ def _empty_figure(title: str):
     fig.update_xaxes(visible=False)
     fig.update_yaxes(visible=False)
     return fig
+
+
+@callback(Output("transform", "value"), Input("testname", "value"))
+def set_transform_from_regression_config(testname: str | None):
+    return _transform_radio_value_for_testname(testname)
 
 
 @callback(Output("cohort_filter", "value"), Input("groupby", "value"))
@@ -316,25 +363,7 @@ def update_biomarker_header(testname: str | None):
     if not testname:
         return "", ""
 
-    project_id = None
-    try:
-        q = """
-        SELECT PROJECTID, COUNT(*) AS n
-        FROM analysis
-        WHERE TESTNAME = :testname AND PROJECTID IS NOT NULL
-        GROUP BY PROJECTID
-        ORDER BY n DESC
-        LIMIT 1
-        """
-        pid_df = pd.read_sql_query(q, ENGINE, params={"testname": str(testname)})
-    except Exception:
-        pid_df = pd.DataFrame()
-
-    if not pid_df.empty and "PROJECTID" in pid_df.columns:
-        try:
-            project_id = int(pd.to_numeric(pid_df["PROJECTID"].iloc[0], errors="coerce"))
-        except Exception:
-            project_id = None
+    project_id = _modal_project_id_for_testname(str(testname))
 
     meta_children: list = []
     if project_id is None:
