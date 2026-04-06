@@ -1,0 +1,190 @@
+from __future__ import annotations
+
+import argparse
+import sys
+from collections.abc import Callable
+from pathlib import Path
+
+import pandas as pd
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from utils.data_processing import append_to_cleaned_biospecimen_csv
+
+
+def _pick_latest(data_dir: Path, pattern: str) -> Path:
+    matches = sorted(data_dir.glob(pattern))
+    if not matches:
+        raise FileNotFoundError(f"No files match {pattern!r} in {data_dir}")
+    return matches[-1]
+
+
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description=(
+            "Clean raw biospecimen data per project and append to the local SQLite DB "
+            "and cleaned CSVs. Each project has its own cleaning function; see "
+            "notebooks/data_cleaning.ipynb."
+        )
+    )
+    p.add_argument(
+        "--data-dir",
+        type=str,
+        default="data/raw",
+        help="Directory containing raw CSV inputs (default: data/raw).",
+    )
+    p.add_argument(
+        "--db-path",
+        type=str,
+        default=None,
+        help="Optional SQLite DB path (default: data/processed/biomarkers.sqlite).",
+    )
+    p.add_argument(
+        "--output-analysis-csv",
+        type=str,
+        default=None,
+        help="Override output cleaned analysis CSV path.",
+    )
+    p.add_argument(
+        "--output-projects-csv",
+        type=str,
+        default=None,
+        help="Override output cleaned projects CSV path.",
+    )
+    return p.parse_args()
+
+
+def _build_ml_df(data_dir: Path) -> pd.DataFrame:
+    ml_full_path = data_dir / "AMPPDv4_LRRK2v4_results_N23.csv"
+    ml_posthoc_path = data_dir / "AMPPDv4_LRRK2v4_results_N23_for_post_hoc.csv"
+    ml_df_full = pd.read_csv(ml_full_path)
+    ml_df_posthoc = pd.read_csv(ml_posthoc_path)
+
+    ml_df_full = ml_df_full.copy()
+    ml_df_full["GBA"] = (~ml_df_full.ID.isin(ml_df_posthoc.ID)).astype(int)
+
+    ml_df = ml_df_full.loc[ml_df_full.ID.astype(str).str.contains("PP-")].copy()
+    ml_df["PATNO"] = ml_df["ID"].astype(str).str.strip("PP-").astype(int)
+    ml_df = ml_df.rename(
+        columns={
+            "LRRK2-RV": "RV",
+            "LRRK2-Predicted": "PREDICTED",
+            "LRRK2-Driven": "DRIVEN",
+            "heuristic": "HEURISTIC",
+        }
+    )
+    return ml_df.loc[:, ["PATNO", "RV", "GBA", "PREDICTED", "DRIVEN", "HEURISTIC"]].copy()
+
+
+def _build_age_df(data_dir: Path) -> pd.DataFrame:
+    age_path = _pick_latest(data_dir, "Age_at_visit_*.csv")
+    age = pd.read_csv(age_path).rename(columns={"EVENT_ID": "CLINICAL_EVENT"})
+    age = age.drop_duplicates(subset=["PATNO", "CLINICAL_EVENT"], keep="last")
+    return age
+
+
+def _load_biospecimen_results(data_dir: Path) -> pd.DataFrame:
+    results_path = _pick_latest(data_dir, "Current_Biospecimen_Analysis_Results_*.csv")
+    return pd.read_csv(results_path, low_memory=False)
+
+
+def _dedupe_biomarker_rows(df: pd.DataFrame) -> pd.DataFrame:
+    dff = df.copy()
+    dff = dff.drop_duplicates(
+        subset=["PATNO", "PROJECTID", "CLINICAL_EVENT", "TYPE", "TESTNAME", "RUNDATE"],
+        keep="last",
+    )
+    return dff
+
+
+def clean_project_145(biomarker_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Project 145 (Urine BMP): rows come from the main biospecimen results export.
+    Mirrors notebooks/data_cleaning.ipynb (merge ML + age, then subset PROJECTID == 145).
+    """
+    project_145 = biomarker_df.loc[biomarker_df["PROJECTID"] == 145].copy()
+    return project_145
+
+
+def clean_project_151(data_dir: Path, ml_df: pd.DataFrame, age_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Project 151 (CSF SomaScan): seven batch-corrected files, annotation key for TESTNAME,
+    then ML + age merges and the curated biomarker subset from the notebook.
+    """
+    files_151 = sorted(data_dir.glob("Project_151_pQTL_in_CSF_*_of_7_Batch_Corrected__*.csv"))
+    if not files_151:
+        return pd.DataFrame()
+
+    project_151 = pd.concat([pd.read_csv(f, low_memory=False) for f in files_151], ignore_index=True)
+
+    # Join annotations to construct the notebook's TESTNAME_2 and replace TESTNAME.
+    key_path = data_dir / "PPMI_Project_151_pqtl_Analysis_Annotations_20210210.csv"
+    key = pd.read_csv(key_path, usecols=["SOMA_SEQ_ID", "TARGET_GENE_SYMBOL"])
+    key = key.copy()
+    key["TESTNAME_2"] = key["TARGET_GENE_SYMBOL"].astype("string") + "_" + key["SOMA_SEQ_ID"].astype(
+        "string"
+    )
+    key["TESTNAME_2"] = key["TESTNAME_2"].fillna(key["SOMA_SEQ_ID"])
+    key = key.drop_duplicates()
+
+    project_151 = project_151.merge(key, left_on="TESTNAME", right_on=["SOMA_SEQ_ID"], how="left")
+    project_151["TESTNAME"] = project_151["TESTNAME_2"]
+
+    project_151 = project_151.merge(ml_df, on="PATNO", how="left")
+    project_151 = project_151.merge(age_df, on=["PATNO", "CLINICAL_EVENT"], how="left")
+
+    # curated = {
+    #     "C1QTNF1_6304-8_3",
+    #     "HLA-DQA2_7757-5_3",
+    #     "GPNMB_8240-207_3",
+    #     "GRN_4992-49_1",
+    #     "GPNMB_5080-131_3",
+    #     "ITGB2_12750-9_3",
+    #     "ENTPD1_3182-38_2",
+    # }
+    # project_151 = project_151.loc[project_151["TESTNAME"].astype(str).isin(curated)].copy()
+    return project_151
+
+
+def main() -> None:
+    args = _parse_args()
+    data_dir = (_REPO_ROOT / args.data_dir).resolve()
+
+    ml_df = _build_ml_df(data_dir)
+    age_df = _build_age_df(data_dir)
+
+    biomarker_df = _load_biospecimen_results(data_dir)
+    biomarker_df = _dedupe_biomarker_rows(biomarker_df)
+    biomarker_df = biomarker_df.merge(ml_df, on="PATNO", how="left")
+    biomarker_df = biomarker_df.merge(age_df, on=["PATNO", "CLINICAL_EVENT"], how="left")
+
+    append_kw: dict = {
+        "output_path": args.output_analysis_csv,
+        "project_metadata_path": args.output_projects_csv,
+        "db_path": args.db_path,
+        "keep": "last",
+    }
+
+    project_cleaners: list[tuple[str, Callable[..., pd.DataFrame]]] = [
+        ("145", clean_project_145),
+        ("151", clean_project_151),
+    ]
+
+    for label, cleaner in project_cleaners:
+        if label == "151":
+            df = cleaner(data_dir, ml_df, age_df)
+        else:
+            df = cleaner(biomarker_df)
+        if df.empty:
+            print(f"Skipping project {label}: no rows after cleaning.")
+            continue
+        append_to_cleaned_biospecimen_csv(df, **append_kw)
+        print(f"Appended project {label}: {len(df)} rows.")
+
+    print("Done. Updated cleaned CSV(s) and SQLite DB (per project).")
+
+
+if __name__ == "__main__":
+    main()

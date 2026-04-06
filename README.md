@@ -33,3 +33,22 @@ python3 app.py
 
 Then open `http://127.0.0.1:8050` in your browser.
 
+## Local SQLite database (recommended for large datasets)
+
+This repo can store cleaned biospecimen rows in a local SQLite file so the app no longer depends on a single giant CSV.
+
+### Build the local DB (also writes CSVs)
+
+From the repo root:
+
+```bash
+python3 scripts/clean_biomarkers.py
+```
+
+This produces/updates:
+- `data/processed/biomarkers.sqlite` (tables: `analysis`, `projects`)
+- `data/processed/cleaned_biospecimen_analysis.csv`
+- `data/processed/cleaned_biospecimen_projects.csv`
+
+If your raw files live somewhere other than `data/raw`, pass `--data-dir`.
+

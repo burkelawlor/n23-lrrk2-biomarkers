@@ -6,3 +6,5 @@ plotly>=5.0
 dash-bootstrap-components>=1.0
 statsmodels>=0.14
 pyyaml>=6.0
+astropy>=7.0
+sqlalchemy>=2.0
