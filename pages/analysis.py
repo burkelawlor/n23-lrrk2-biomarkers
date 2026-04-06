@@ -12,6 +12,7 @@ import dash
 import dash_bootstrap_components as dbc
 
 from utils.biomarker_regression import run_biomarker_by_biomarker_cohort_regressions
+from utils.db import fetch_analysis_subset, get_engine, get_project_rundates_lookup, get_projects_lookup, get_testnames
 
 
 dash.register_page(
@@ -22,8 +23,7 @@ dash.register_page(
 )
 
 
-DATA_PATH = Path("./data/processed/cleaned_biospecimen_analysis.csv")
-PROJECTS_PATH = Path("./data/processed/cleaned_biospecimen_projects.csv")
+DB_PATH = Path("./data/processed/biomarkers.sqlite")
 
 COHORTS: dict[str, dict[str, object]] = {
     "COHORT": {
@@ -45,9 +45,7 @@ COHORTS: dict[str, dict[str, object]] = {
 }
 
 
-def load_data(path: Path) -> pd.DataFrame:
-    df = pd.read_csv(path)
-
+def _normalize_analysis_df(df: pd.DataFrame) -> pd.DataFrame:
     required_cols = {
         "TESTNAME",
         "TESTVALUE",
@@ -63,7 +61,7 @@ def load_data(path: Path) -> pd.DataFrame:
     }
     missing = required_cols - set(df.columns)
     if missing:
-        raise ValueError(f"Missing required columns in {path}: {sorted(missing)}")
+        raise ValueError(f"Missing required columns: {sorted(missing)}")
 
     out = df.loc[
         :,
@@ -109,26 +107,18 @@ def load_data(path: Path) -> pd.DataFrame:
     return out
 
 
-DF = load_data(DATA_PATH)
-PROJECTS_DF = pd.read_csv(PROJECTS_PATH).copy()
-PROJECTS_DF["PROJECTID"] = pd.to_numeric(PROJECTS_DF["PROJECTID"], errors="coerce")
-PROJECTS_DF = PROJECTS_DF.dropna(subset=["PROJECTID"])
-PROJECTS_DF["PROJECTID"] = PROJECTS_DF["PROJECTID"].astype(int)
-PROJECTS_LOOKUP = PROJECTS_DF.set_index("PROJECTID")[["PI_NAME", "PI_INSTITUTION"]].to_dict(
-    orient="index"
-)
+ENGINE = get_engine(DB_PATH)
+PROJECTS_LOOKUP = get_projects_lookup(ENGINE)
+PROJECT_RUNDATES_LOOKUP = get_project_rundates_lookup(ENGINE)
 
-PROJECT_RUNDATES = (
-    DF.groupby("PROJECTID", dropna=False)["RUNDATE"].agg(min_date="min", max_date="max").reset_index()
-)
-PROJECT_RUNDATES["PROJECTID"] = PROJECT_RUNDATES["PROJECTID"].astype(int)
-PROJECT_RUNDATES_LOOKUP = PROJECT_RUNDATES.set_index("PROJECTID")[["min_date", "max_date"]].to_dict(
-    orient="index"
-)
-
-TESTNAMES = sorted(DF["TESTNAME"].unique().tolist())
+TESTNAMES = get_testnames(ENGINE)
 DEFAULT_TESTNAME = TESTNAMES[0] if TESTNAMES else None
-COHORT_VALUES = [c for c in COHORTS["COHORT"]["Order"] if c in set(DF["COHORT"].unique())]
+try:
+    _cohort_df = pd.read_sql_query("SELECT DISTINCT COHORT FROM analysis", ENGINE)
+    _present_cohorts = set(_cohort_df["COHORT"].dropna().astype(str).tolist())
+except Exception:
+    _present_cohorts = set()
+COHORT_VALUES = [c for c in COHORTS["COHORT"]["Order"] if c in _present_cohorts]
 
 
 def description_card():
@@ -267,11 +257,15 @@ def _filtered_df(
     cohort_filter: list[str] | None,
     gba_filter_mode: str | None,
 ) -> pd.DataFrame:
-    selected_cohorts = cohort_filter or []
-    dff = DF[(DF["TESTNAME"] == testname) & (DF["COHORT"].isin(selected_cohorts))]
-    if gba_filter_mode == "excluded":
-        dff = dff[dff["GBA"] != 1]
-    return dff
+    dff = fetch_analysis_subset(
+        ENGINE,
+        testname=str(testname),
+        cohort_filter=cohort_filter,
+        gba_filter_mode=gba_filter_mode,
+    )
+    if dff.empty:
+        return dff
+    return _normalize_analysis_df(dff)
 
 
 def _build_model_df(
@@ -322,11 +316,23 @@ def update_biomarker_header(testname: str | None):
     if not testname:
         return "", ""
 
-    s = DF.loc[DF["TESTNAME"] == testname, "PROJECTID"]
     project_id = None
-    if not s.empty:
+    try:
+        q = """
+        SELECT PROJECTID, COUNT(*) AS n
+        FROM analysis
+        WHERE TESTNAME = :testname AND PROJECTID IS NOT NULL
+        GROUP BY PROJECTID
+        ORDER BY n DESC
+        LIMIT 1
+        """
+        pid_df = pd.read_sql_query(q, ENGINE, params={"testname": str(testname)})
+    except Exception:
+        pid_df = pd.DataFrame()
+
+    if not pid_df.empty and "PROJECTID" in pid_df.columns:
         try:
-            project_id = int(pd.to_numeric(s, errors="coerce").dropna().mode().iloc[0])
+            project_id = int(pd.to_numeric(pid_df["PROJECTID"].iloc[0], errors="coerce"))
         except Exception:
             project_id = None
 
