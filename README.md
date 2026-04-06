@@ -4,7 +4,7 @@ This repo contains data cleaning, code to run regression analyses, and a Plotly 
 
 ## Run regression (all biomarkers)
 
-`run_biomarker_regression_by_project.py` runs regressions **by project** over the cleaned biospecimen dataset in `data/processed/cleaned_biospecimen_analysis.csv`, and writes:
+`scripts/run_biomarker_regression_by_project.py` runs regressions **by project** over the cleaned biospecimen dataset in `data/processed/cleaned_biospecimen_analysis.csv`, and writes:
 
 - `output/biomarker_cohort_omnibus.csv`
 - `output/biomarker_cohort_pairwise.csv`
@@ -12,13 +12,13 @@ This repo contains data cleaning, code to run regression analyses, and a Plotly 
 Run for all projects:
 
 ```bash
-python3 run_biomarker_regression_by_project.py
+python3 scripts/run_biomarker_regression_by_project.py
 ```
 
 Run for a single project:
 
 ```bash
-python3 run_biomarker_regression_by_project.py --projectid 145
+python3 scripts/run_biomarker_regression_by_project.py --projectid 145
 ```
 
 The results in `output/biomarker_cohort_omnibus.csv` are used in the dashboard’s **Overview** page.

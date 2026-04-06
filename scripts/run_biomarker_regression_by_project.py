@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
 import yaml
 
 import numpy as np
 import pandas as pd
-from utils.biomarker_regression import run_biomarker_by_biomarker_cohort_regressions
+
+# Allow running as a standalone script from within scripts/
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from utils.biomarker_regression import run_biomarker_by_biomarker_cohort_regressions  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -64,7 +72,6 @@ def _parse_config(obj: Any, *, context: str) -> RegressionConfig:
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
-
     if not path.exists():
         raise FileNotFoundError(f"Config YAML not found: {path}")
 
@@ -227,12 +234,12 @@ def _apply_pd_only_filter(df: pd.DataFrame, *, pd_only: bool) -> pd.DataFrame:
 
 def main() -> None:
     args = _parse_args()
-    repo_root = Path(__file__).resolve().parent
-    input_csv = repo_root / "data" / "processed" / "cleaned_biospecimen_analysis.csv"
-    output_dir = repo_root / "output"
+
+    input_csv = REPO_ROOT / "data" / "processed" / "cleaned_biospecimen_analysis.csv"
+    output_dir = REPO_ROOT / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    config_path = Path(args.config_yaml) if args.config_yaml else (repo_root / "regression_configs.yaml")
+    config_path = Path(args.config_yaml) if args.config_yaml else (REPO_ROOT / "regression_configs.yaml")
     global_cfg, project_cfgs, test_cfgs = _load_regression_configs(config_path)
     print(f"Loaded regression config YAML: {config_path}")
 
@@ -256,10 +263,10 @@ def main() -> None:
 
     omnibus_parts: list[pd.DataFrame] = []
     pairwise_parts: list[pd.DataFrame] = []
+    cohort_col = "HEURISTIC"
 
     grouped = df.groupby("PROJECTID", sort=True)
     for project_id, sub in grouped:
-        cohort_col = "HEURISTIC"
         if cohort_col not in sub.columns:
             raise ValueError(f"Expected {cohort_col!r} column for cohort comparisons.")
         if sub[cohort_col].nunique(dropna=True) < 2:
@@ -358,8 +365,8 @@ def main() -> None:
     omnibus_df = pd.concat(omnibus_parts, ignore_index=True)
     pairwise_df = pd.concat(pairwise_parts, ignore_index=True)
 
-    omnibus_path = output_dir / "biomarker_cohort_omnibus.csv"
-    pairwise_path = output_dir / "biomarker_cohort_pairwise.csv"
+    omnibus_path = output_dir / f"regression_results_omnibus_{cohort_col}.csv"
+    pairwise_path = output_dir / f"regression_results_pairwise_{cohort_col}.csv"
 
     existing_omnibus = _read_if_exists(omnibus_path)
     existing_pairwise = _read_if_exists(pairwise_path)
@@ -392,3 +399,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
