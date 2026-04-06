@@ -184,6 +184,7 @@ def main() -> None:
                     testvalue_col=testvalue_col,
                     z_col=z_col,
                     add_conf_int=False,
+                    outlier_handling=cfg.outlier_handling,
                 )
             except ValueError as exc:
                 print(f"PROJECTID={project_id}: skipping config chunk {cfg} due to: {exc}")

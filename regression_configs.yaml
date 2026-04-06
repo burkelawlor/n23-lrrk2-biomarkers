@@ -2,9 +2,14 @@ global:
   gba_included: false
   log_transform: false
   pd_only: true
+  outlier_handling: none
 
 projectids:
   145:
     log_transform: true
 
-testnames: {}
+testnames:
+  "C1QTNF1_6304-8_3":
+    outlier_handling: std
+  "GRN_4992-49_1":
+    outlier_handling: std

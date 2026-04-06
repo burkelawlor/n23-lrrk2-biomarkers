@@ -7,11 +7,28 @@ from typing import Any
 import yaml
 
 
+_OUTLIER_HANDLING_VALUES = frozenset({"none", "std", "iqr"})
+
+
+def _parse_outlier_handling(value: Any, *, context: str) -> str:
+    if value is None:
+        return "std"
+    if not isinstance(value, str):
+        raise ValueError(f"{context}: expected outlier_handling to be a str, got {type(value).__name__}")
+    v = value.strip().lower()
+    if v not in _OUTLIER_HANDLING_VALUES:
+        raise ValueError(
+            f"{context}: outlier_handling must be one of {sorted(_OUTLIER_HANDLING_VALUES)}, got {value!r}"
+        )
+    return v
+
+
 @dataclass(frozen=True)
 class RegressionConfig:
     gba_included: bool
     log_transform: bool
     pd_only: bool
+    outlier_handling: str
 
 
 def _parse_bool(value: Any, *, field_name: str, context: str) -> bool:
@@ -22,11 +39,11 @@ def _parse_bool(value: Any, *, field_name: str, context: str) -> bool:
 
 def _parse_config(obj: Any, *, context: str) -> RegressionConfig:
     if obj is None:
-        raise ValueError(f"{context}: expected a mapping with keys gba_included/log_transform, got null")
+        raise ValueError(f"{context}: expected a mapping for regression settings, got null")
     if not isinstance(obj, dict):
         raise ValueError(f"{context}: expected a mapping, got {type(obj).__name__}")
 
-    allowed = {"gba_included", "log_transform", "pd_only"}
+    allowed = {"gba_included", "log_transform", "pd_only", "outlier_handling"}
     extra = sorted([k for k in obj.keys() if k not in allowed])
     if extra:
         raise ValueError(f"{context}: unknown keys {extra}; allowed keys are {sorted(allowed)}")
@@ -34,7 +51,13 @@ def _parse_config(obj: Any, *, context: str) -> RegressionConfig:
     gba_included = _parse_bool(obj.get("gba_included", False), field_name="gba_included", context=context)
     log_transform = _parse_bool(obj.get("log_transform", False), field_name="log_transform", context=context)
     pd_only = _parse_bool(obj.get("pd_only", True), field_name="pd_only", context=context)
-    return RegressionConfig(gba_included=gba_included, log_transform=log_transform, pd_only=pd_only)
+    outlier_handling = _parse_outlier_handling(obj.get("outlier_handling"), context=context)
+    return RegressionConfig(
+        gba_included=gba_included,
+        log_transform=log_transform,
+        pd_only=pd_only,
+        outlier_handling=outlier_handling,
+    )
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -105,6 +128,7 @@ def load_regression_configs(path: Path) -> tuple[RegressionConfig, dict[int, Reg
             "gba_included": global_cfg.gba_included,
             "log_transform": global_cfg.log_transform,
             "pd_only": global_cfg.pd_only,
+            "outlier_handling": global_cfg.outlier_handling,
         }
         merged.update(cfg_obj)
         project_cfgs[pid] = _parse_config(merged, context=f"projectids[{pid}]")
@@ -115,6 +139,7 @@ def load_regression_configs(path: Path) -> tuple[RegressionConfig, dict[int, Reg
             "gba_included": global_cfg.gba_included,
             "log_transform": global_cfg.log_transform,
             "pd_only": global_cfg.pd_only,
+            "outlier_handling": global_cfg.outlier_handling,
         }
         merged.update(cfg_obj)
         test_cfgs[testname] = _parse_config(merged, context=f"testnames[{testname!r}]")

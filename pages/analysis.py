@@ -13,6 +13,7 @@ import dash_bootstrap_components as dbc
 
 from utils.biomarker_regression import run_biomarker_by_biomarker_cohort_regressions
 from utils.db import fetch_analysis_subset, get_engine, get_project_rundates_lookup, get_projects_lookup, get_testnames
+from utils.outliers import drop_outlier_rows
 from utils.regression_config import effective_config, load_regression_configs
 
 
@@ -163,6 +164,22 @@ def _transform_radio_value_for_testname(testname: str | None) -> str:
 DEFAULT_TRANSFORM_VALUE = _transform_radio_value_for_testname(DEFAULT_TESTNAME)
 
 
+def _outlier_radio_value_for_testname(testname: str | None) -> str:
+    if not testname:
+        return "std"
+    cfg = effective_config(
+        project_id=_modal_project_id_for_testname(str(testname)),
+        testname=str(testname),
+        global_cfg=_GLOBAL_CFG,
+        project_cfgs=_PROJECT_CFGS,
+        test_cfgs=_TEST_CFGS,
+    )
+    return cfg.outlier_handling
+
+
+DEFAULT_OUTLIER_VALUE = _outlier_radio_value_for_testname(DEFAULT_TESTNAME)
+
+
 def description_card():
     return dbc.Card(
         id="description-card",
@@ -255,6 +272,17 @@ def generate_control_card():
                         value=DEFAULT_TRANSFORM_VALUE,
                         inline=True,
                     ),
+                    html.P("Outlier removal", className="card-title", style={"marginTop": "12px"}),
+                    dbc.RadioItems(
+                        id="outlier_removal",
+                        options=[
+                            {"label": "None", "value": "none"},
+                            {"label": "± 3 SD", "value": "std"},
+                            {"label": "1.5 IQR", "value": "iqr"},
+                        ],
+                        value=DEFAULT_OUTLIER_VALUE,
+                        inline=True,
+                    ),
                 ]
             )
         ],
@@ -283,6 +311,11 @@ def _empty_figure(title: str):
 @callback(Output("transform", "value"), Input("testname", "value"))
 def set_transform_from_regression_config(testname: str | None):
     return _transform_radio_value_for_testname(testname)
+
+
+@callback(Output("outlier_removal", "value"), Input("testname", "value"))
+def set_outlier_removal_from_regression_config(testname: str | None):
+    return _outlier_radio_value_for_testname(testname)
 
 
 @callback(Output("cohort_filter", "value"), Input("groupby", "value"))
@@ -315,21 +348,40 @@ def _filtered_df(
     return _normalize_analysis_df(dff)
 
 
+def _apply_transform_and_outliers(
+    dff: pd.DataFrame,
+    transform: str | None,
+    outlier_handling: str | None,
+) -> tuple[pd.DataFrame, str]:
+    if dff.empty:
+        return dff, "TESTVALUE"
+    method = outlier_handling if outlier_handling in ("none", "std", "iqr") else "none"
+    model_df = dff.copy()
+    if transform == "log":
+        model_df = model_df[model_df["TESTVALUE"] > 0].copy()
+        if model_df.empty:
+            return model_df, "LOG_TESTVALUE"
+        model_df["LOG_TESTVALUE"] = np.log(model_df["TESTVALUE"])
+        testvalue_col = "LOG_TESTVALUE"
+    else:
+        testvalue_col = "TESTVALUE"
+    model_df = drop_outlier_rows(
+        model_df, method=method, value_col=testvalue_col, group_col="TESTNAME"
+    )
+    return model_df, testvalue_col
+
+
 def _build_model_df(
     testname: str,
     groupby: str | None,
     cohort_filter: list[str] | None,
     gba_filter_mode: str | None,
     transform: str | None,
+    outlier_handling: str | None,
 ) -> tuple[pd.DataFrame, str, str]:
     group_col = groupby if groupby in {"COHORT", "HEURISTIC"} else "COHORT"
-    model_df = _filtered_df(testname, cohort_filter, gba_filter_mode).copy()
-    if transform == "log":
-        model_df = model_df[model_df["TESTVALUE"] > 0].copy()
-        model_df["LOG_TESTVALUE"] = np.log(model_df["TESTVALUE"])
-        testvalue_col = "LOG_TESTVALUE"
-    else:
-        testvalue_col = "TESTVALUE"
+    base = _filtered_df(testname, cohort_filter, gba_filter_mode).copy()
+    model_df, testvalue_col = _apply_transform_and_outliers(base, transform, outlier_handling)
     return model_df, group_col, testvalue_col
 
 
@@ -458,6 +510,7 @@ layout = html.Div(
         Input("cohort_filter", "value"),
         Input("gba_filter_mode", "value"),
         Input("transform", "value"),
+        Input("outlier_removal", "value"),
     ],
 )
 def update_figures(
@@ -466,6 +519,7 @@ def update_figures(
     cohort_filter: list[str] | None,
     gba_filter_mode: str | None,
     transform: str | None,
+    outlier_handling: str | None,
 ):
     if not testname:
         empty = _empty_figure("No data to display")
@@ -478,16 +532,11 @@ def update_figures(
         return empty, empty
 
     unit = dff["UNITS"].unique()[0]
-    x_col = "TESTVALUE"
-    x_label = f"{testname} [{unit}]"
-    if transform == "log":
-        dff = dff[dff["TESTVALUE"] > 0].copy()
-        if dff.empty:
-            empty = _empty_figure("No rows match current filters")
-            return empty, empty
-        dff["LOG_TESTVALUE"] = np.log(dff["TESTVALUE"])
-        x_col = "LOG_TESTVALUE"
-        x_label = f"log({testname}) [{unit}]"
+    dff, x_col = _apply_transform_and_outliers(dff, transform, outlier_handling)
+    if dff.empty:
+        empty = _empty_figure("No rows match current filters")
+        return empty, empty
+    x_label = f"log({testname}) [{unit}]" if x_col == "LOG_TESTVALUE" else f"{testname} [{unit}]"
 
     group_col = groupby if groupby in {"COHORT", "HEURISTIC"} else "COHORT"
     category_orders, color_map = _group_config(group_col, dff, selected_cohorts)
@@ -546,6 +595,7 @@ def update_figures(
         Input("cohort_filter", "value"),
         Input("gba_filter_mode", "value"),
         Input("transform", "value"),
+        Input("outlier_removal", "value"),
     ],
 )
 def update_stats_table(
@@ -554,12 +604,13 @@ def update_stats_table(
     cohort_filter: list[str] | None,
     gba_filter_mode: str | None,
     transform: str | None,
+    outlier_handling: str | None,
 ):
     if not testname:
         return html.Div("Select a biomarker to see cohort regression results.")
 
     model_df, group_col, testvalue_col = _build_model_df(
-        testname, groupby, cohort_filter, gba_filter_mode, transform
+        testname, groupby, cohort_filter, gba_filter_mode, transform, outlier_handling
     )
     if model_df.empty:
         return html.Div("No rows match current filters; regression tests are unavailable.")
@@ -584,6 +635,7 @@ def update_stats_table(
             cohort_categories=cohort_categories,
             testvalue_col=testvalue_col,
             z_col=z_col,
+            outlier_handling="none",
         )
     except Exception as e:
         return html.Div(f"Regression failed: {e}")
@@ -711,6 +763,7 @@ def update_stats_table(
         State("cohort_filter", "value"),
         State("gba_filter_mode", "value"),
         State("transform", "value"),
+        State("outlier_removal", "value"),
     ],
     prevent_initial_call=True,
 )
@@ -721,12 +774,13 @@ def download_filtered_data(
     cohort_filter: list[str] | None,
     gba_filter_mode: str | None,
     transform: str | None,
+    outlier_handling: str | None,
 ):
     if not testname:
         return None
 
     model_df, group_col, testvalue_col = _build_model_df(
-        testname, groupby, cohort_filter, gba_filter_mode, transform
+        testname, groupby, cohort_filter, gba_filter_mode, transform, outlier_handling
     )
     if model_df.empty:
         return None
@@ -756,6 +810,9 @@ def download_filtered_data(
         )
 
     safe_name = str(testname).replace("/", "-").replace("\\", "-")
-    filename = f"{safe_name}__groupby-{group_col}__transform-{transform or 'none'}.csv"
+    filename = (
+        f"{safe_name}__groupby-{group_col}__transform-{transform or 'none'}"
+        f"__outliers-{outlier_handling or 'none'}.csv"
+    )
     return dcc.send_data_frame(export_df.to_csv, filename, index=False)
 

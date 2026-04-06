@@ -7,6 +7,8 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from utils.outliers import drop_outlier_rows
+
 try:
     import patsy
     import statsmodels.formula.api as smf
@@ -324,6 +326,7 @@ def run_biomarker_by_biomarker_cohort_regressions(
     alpha: float = 0.05,
     add_conf_int: bool = False,
     include_raw_mean_diff: bool = True,
+    outlier_handling: str = "none",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Run per-biomarker OLS regressions.
@@ -341,8 +344,14 @@ def run_biomarker_by_biomarker_cohort_regressions(
       - omnibus_df: one row per biomarker (omnibus cohort p-value + BH q-value)
       - pairwise_df: one row per biomarker x cohort-pair (t-tests via model contrasts)
     """
-    dfp = preprocess_biomarker_long_format(
+    df_clean = drop_outlier_rows(
         df,
+        method=outlier_handling,
+        value_col=testvalue_col,
+        group_col=testname_col,
+    )
+    dfp = preprocess_biomarker_long_format(
+        df_clean,
         standardize_within_biomarker=standardize_within_biomarker,
         cohort_categories=cohort_categories,
         testname_col=testname_col,
@@ -554,6 +563,9 @@ def run_biomarker_by_biomarker_cohort_regressions(
 
     if not include_raw_mean_diff and "mean_diff_raw" in pairwise_df.columns:
         pairwise_df = pairwise_df.drop(columns=["mean_diff_raw"])
+
+    omnibus_df["outlier_handling"] = outlier_handling
+    pairwise_df["outlier_handling"] = outlier_handling
 
     return omnibus_df, pairwise_df
 
