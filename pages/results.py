@@ -164,11 +164,17 @@ layout = dbc.Container(
                         html.H2("Results Overview"),
                         html.P(
                             [
-                                "Interactive view of regression results loaded from omnibus and pairwise tests ",
-                                html.Code("output/regression_results_omnibus_HEURISTIC.csv"),
-                                " and ",
-                                html.Code("output/regression_results_pairwise_HEURISTIC.csv"),
-                                ". Use the column filters and sorting to find biomarkers of interest.",
+                                "Interactive view of regression results for omnibus and RV vs Predicted pairwise tests. About the results:",                                
+
+                                html.Ul([
+                                    html.Li(["Two tests are performed for each biomarker: ", "omnibus", " and ", "RV vs Predicted pairwise", ". For each test, an n, p-value and q-value are shown."]),
+                                    html.Li(["The ", html.B("omnibus"), " value tests for the difference across all classifier cohorts (Non, RV, and Predicted). A low p-value indicates that there is a difference in at least one cohort."]),
+                                    html.Li(["The ", html.B("RV vs Predicted pairwise"), " tests for the difference between the RV and Predicted cohorts. A low p-value indicates that there is a difference between the RV and Predicted cohorts."]),
+                                    html.Li(["The ", html.B("q-values"), " represent the test-corrected p-values using FDR. Test corrections are necessary to control the inflated risk of false positives that occurs when conducting thousands of simultaneous statistical comparisons. Test corrections are applied by project, not for all tests overall."]),
+                                ]),
+                                
+                           
+                                "Use the column filters and sorting to find biomarkers of interest.",
                             ]
                         ),
                     ],
