@@ -139,16 +139,16 @@ def clean_project_151(data_dir: Path, ml_df: pd.DataFrame, age_df: pd.DataFrame)
     project_151 = project_151.merge(ml_df, on="PATNO", how="left")
     project_151 = project_151.merge(age_df, on=["PATNO", "CLINICAL_EVENT"], how="left")
 
-    curated = {
-        "C1QTNF1_6304-8_3",
-        "HLA-DQA2_7757-5_3",
-        "GPNMB_8240-207_3",
-        "GRN_4992-49_1",
-        "GPNMB_5080-131_3",
-        "ITGB2_12750-9_3",
-        "ENTPD1_3182-38_2",
-    }
-    project_151 = project_151.loc[project_151["TESTNAME"].astype(str).isin(curated)].copy()
+    # curated = {
+    #     "C1QTNF1_6304-8_3",
+    #     "HLA-DQA2_7757-5_3",
+    #     "GPNMB_8240-207_3",
+    #     "GRN_4992-49_1",
+    #     "GPNMB_5080-131_3",
+    #     "ITGB2_12750-9_3",
+    #     "ENTPD1_3182-38_2",
+    # }
+    # project_151 = project_151.loc[project_151["TESTNAME"].astype(str).isin(curated)].copy()
     return project_151
 
 

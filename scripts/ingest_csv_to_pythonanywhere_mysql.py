@@ -31,19 +31,18 @@ if str(_REPO_ROOT) not in sys.path:
 from utils.db_ingest import load_csv_to_mysql
 from utils.db_runtime import create_engine_from_url
 
-SSH_HOSTNAME = "ssh.pythonanywhere.com"
-SSH_USERNAME = "blawlor"
-MYSQL_REMOTE_HOST = "blawlor.mysql.pythonanywhere-services.com"
-MYSQL_DATABASE = "blawlor$biomarkers"
-MYSQL_USER = "blawlor"
-
 load_dotenv('.env.local')
+SSH_HOSTNAME = "ssh.pythonanywhere.com"
+SSH_USERNAME = os.getenv("PYTHONANYWHERE_SSH_USERNAME")
+MYSQL_REMOTE_HOST = os.getenv("PYTHONANYWHERE_MYSQL_REMOTE_HOST")
+MYSQL_DATABASE = os.getenv("PYTHONANYWHERE_MYSQL_DATABASE")
+MYSQL_USER = os.getenv("PYTHONANYWHERE_SSH_USERNAME")
 SSH_PASSWORD = os.getenv("PYTHONANYWHERE_SSH_PASSWORD")
 MYSQL_PASSWORD = os.getenv("PYTHONANYWHERE_MYSQL_PASSWORD")
 
 analysis_csv = str(_REPO_ROOT / "data" / "processed" / "cleaned_biospecimen_analysis.csv")
 projects_csv = str(_REPO_ROOT / "data" / "processed" / "cleaned_biospecimen_projects.csv")
-chunksize = 50_000
+chunksize = 100_000
 
 
 def main() -> None:
@@ -59,11 +58,14 @@ def main() -> None:
     }
     with sshtunnel.SSHTunnelForwarder(**tunnel_kw) as tunnel:        
         port = tunnel.local_bind_port
-    
+        print(f"SSH tunnel established, local bind port: {port}")
+
         database_url = f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@127.0.0.1:{port}/{MYSQL_DATABASE}"
         print(f"Connecting to database at URL: {database_url}")
 
         engine = create_engine_from_url(database_url)
+        print("Engine created, starting CSV ingestion...")
+
         load_csv_to_mysql(
             engine,
             analysis_csv_path=analysis_csv,

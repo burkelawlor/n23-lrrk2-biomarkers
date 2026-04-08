@@ -5,6 +5,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 from sqlalchemy import Engine, text
+from tqdm import tqdm
 
 
 def init_schema(engine: Engine) -> None:
@@ -175,17 +176,35 @@ def load_csv_to_mysql(
     - Loads projects (upsert) if projects CSV provided and exists
     - Loads analysis rows using INSERT IGNORE to respect the unique dedupe key
     """
+    print("Initializing schema...")
     init_schema(engine)
 
     projects_path = Path(projects_csv_path) if projects_csv_path is not None else None
     if projects_path is not None and projects_path.exists():
+        print(f"Loading and upserting projects from: {projects_path}")
         projects = pd.read_csv(projects_path, low_memory=False)
         upsert_projects_mysql(engine, projects)
+        print(f"Projects upserted.")
 
     analysis_path = Path(analysis_csv_path)
     if not analysis_path.exists():
         raise FileNotFoundError(f"Missing analysis CSV: {analysis_path}")
 
-    for chunk in pd.read_csv(analysis_path, low_memory=False, chunksize=int(chunksize)):
+    print(f"Loading analysis CSV in chunks from: {analysis_path}")
+    # Count number of lines for progress, skipping header
+    with open(analysis_path, "r", encoding="utf-8") as f:
+        total_lines = sum(1 for _ in f) - 1
+    num_chunks = (total_lines // int(chunksize)) + (1 if total_lines % int(chunksize) else 0)
+
+    for idx, chunk in enumerate(
+        tqdm(
+            pd.read_csv(analysis_path, low_memory=False, chunksize=int(chunksize)), 
+            total=num_chunks, 
+            desc="Ingesting analysis chunks"
+        ), 1
+    ):
         insert_analysis_ignore_duplicates_mysql(engine, chunk)
+        tqdm.write(f"Inserted chunk {idx}")
+
+    print("All analysis chunks processed.")
 
