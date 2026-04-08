@@ -9,6 +9,7 @@ statsmodels>=0.14
 pyyaml>=6.0
 astropy>=7.0
 python-dotenv>=1.0
+Flask-Caching>=2.1
 sqlalchemy>=2.0
 mysqlclient>=2.2
 pymysql>=1.1

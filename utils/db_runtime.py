@@ -73,6 +73,21 @@ def get_project_rundates_lookup(engine: Engine) -> dict[int, dict[str, Any]]:
     return df.set_index("PROJECTID")[["min_date", "max_date"]].to_dict(orient="index")
 
 
+def get_project_rundates_for_project(engine: Engine, *, project_id: int) -> dict[str, Any] | None:
+    q = """
+    SELECT MIN(RUNDATE) AS min_date, MAX(RUNDATE) AS max_date
+    FROM analysis
+    WHERE PROJECTID = :project_id AND RUNDATE IS NOT NULL
+    """
+    df = pd.read_sql_query(text(q), engine, params={"project_id": int(project_id)})
+    if df.empty:
+        return None
+    row = df.iloc[0].to_dict()
+    if row.get("min_date") is None or row.get("max_date") is None:
+        return None
+    return row
+
+
 def fetch_analysis_subset(
     engine: Engine,
     *,

@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import logging
+import time
+from contextlib import contextmanager
+from io import StringIO
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -12,16 +17,30 @@ import dash
 import dash_bootstrap_components as dbc
 from sqlalchemy import text
 
+from utils.cache_runtime import memoize
 from utils.biomarker_regression import run_biomarker_by_biomarker_cohort_regressions
 from utils.db_runtime import (
     fetch_analysis_subset,
     get_engine_from_env,
-    get_project_rundates_lookup,
+    get_project_rundates_for_project,
     get_projects_lookup,
     get_testnames,
 )
 from utils.outliers import drop_outlier_rows
 from utils.regression_config import effective_config, load_regression_configs
+
+_LOG = logging.getLogger(__name__)
+
+
+@contextmanager
+def _timed(label: str, **fields: Any):
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        dt = time.perf_counter() - t0
+        extra = " ".join([f"{k}={v}" for k, v in fields.items() if v is not None])
+        _LOG.info("perf %s %.3fs %s", label, dt, extra)
 
 
 dash.register_page(
@@ -145,7 +164,8 @@ def _modal_project_id_for_testname(testname: str) -> int | None:
         ORDER BY n DESC
         LIMIT 1
         """
-        pid_df = pd.read_sql_query(text(q), _engine(), params={"testname": str(testname)})
+        with _timed("header.modal_project_id.query", testname=str(testname)):
+            pid_df = pd.read_sql_query(text(q), _engine(), params={"testname": str(testname)})
     except Exception:
         return None
 
@@ -345,15 +365,22 @@ def _filtered_df(
     cohort_filter: list[str] | None,
     gba_filter_mode: str | None,
 ) -> pd.DataFrame:
-    dff = fetch_analysis_subset(
-        _engine(),
+    with _timed(
+        "analysis.fetch_subset",
         testname=str(testname),
-        cohort_filter=cohort_filter,
+        n_cohorts=len(cohort_filter or []),
         gba_filter_mode=gba_filter_mode,
-    )
+    ):
+        dff = fetch_analysis_subset(
+            _engine(),
+            testname=str(testname),
+            cohort_filter=cohort_filter,
+            gba_filter_mode=gba_filter_mode,
+        )
     if dff.empty:
         return dff
-    return _normalize_analysis_df(dff)
+    with _timed("analysis.normalize_df", nrows=int(len(dff))):
+        return _normalize_analysis_df(dff)
 
 
 def _apply_transform_and_outliers(
@@ -431,7 +458,7 @@ def update_biomarker_header(testname: str | None):
         return str(testname), meta_children
 
     meta_children.append(html.Div(f"Project ID: {project_id}"))
-    info = get_projects_lookup(_engine()).get(project_id)
+    info = _cached_projects_lookup().get(project_id)
     if info:
         meta_children.append(html.Div(f"PI Name: {info.get('PI_NAME', '')}"))
         meta_children.append(html.Div(f"PI Institution: {info.get('PI_INSTITUTION', '')}"))
@@ -439,7 +466,7 @@ def update_biomarker_header(testname: str | None):
         meta_children.append(html.Div("PI Name: (unknown)"))
         meta_children.append(html.Div("PI Institution: (unknown)"))
 
-    date_info = get_project_rundates_lookup(_engine()).get(project_id)
+    date_info = _cached_project_rundates(project_id)
     if date_info and date_info.get("min_date") is not None and date_info.get("max_date") is not None:
         min_d = pd.to_datetime(date_info["min_date"]).date().isoformat()
         max_d = pd.to_datetime(date_info["max_date"]).date().isoformat()
@@ -448,6 +475,18 @@ def update_biomarker_header(testname: str | None):
         meta_children.append(html.Div("Run dates: (unknown)"))
 
     return str(testname), meta_children
+
+
+@memoize(timeout=6 * 60 * 60)
+def _cached_projects_lookup() -> dict[int, dict[str, str]]:
+    with _timed("header.projects_lookup.query"):
+        return get_projects_lookup(_engine())
+
+
+@memoize(timeout=6 * 60 * 60)
+def _cached_project_rundates(project_id: int) -> dict[str, Any] | None:
+    with _timed("header.project_rundates.query", project_id=int(project_id)):
+        return get_project_rundates_for_project(_engine(), project_id=int(project_id))
 
 
 layout = html.Div(
@@ -471,6 +510,7 @@ layout = html.Div(
                 ),
                 dbc.Col(
                     [
+                        dcc.Store(id="analysis-store"),
                         html.Div(
                             [
                                 html.H3(id="biomarker-title", style={"margin": "0"}),
@@ -511,36 +551,59 @@ layout = html.Div(
 
 
 @callback(
-    [Output("hist", "figure"), Output("box", "figure")],
+    Output("analysis-store", "data"),
     [
         Input("testname", "value"),
-        Input("groupby", "value"),
         Input("cohort_filter", "value"),
         Input("gba_filter_mode", "value"),
+    ],
+)
+def load_analysis_subset_store(
+    testname: str | None,
+    cohort_filter: list[str] | None,
+    gba_filter_mode: str | None,
+):
+    if not testname:
+        return None
+    dff = _filtered_df(str(testname), cohort_filter, gba_filter_mode)
+    if dff.empty:
+        return None
+    with _timed("analysis.store.serialize", nrows=int(len(dff))):
+        return dff.to_json(date_format="iso", orient="split")
+
+
+@callback(
+    [Output("hist", "figure"), Output("box", "figure")],
+    [
+        Input("analysis-store", "data"),
+        Input("groupby", "value"),
+        Input("cohort_filter", "value"),
         Input("transform", "value"),
         Input("outlier_removal", "value"),
     ],
 )
 def update_figures(
-    testname: str | None,
+    store_json: str | None,
     groupby: str | None,
     cohort_filter: list[str] | None,
-    gba_filter_mode: str | None,
     transform: str | None,
     outlier_handling: str | None,
 ):
-    if not testname:
+    if not store_json:
         empty = _empty_figure("No data to display")
         return empty, empty
 
     selected_cohorts = cohort_filter or []
-    dff = _filtered_df(testname, cohort_filter, gba_filter_mode)
+    with _timed("analysis.store.deserialize.figures"):
+        dff = pd.read_json(StringIO(store_json), orient="split")
     if dff.empty:
         empty = _empty_figure("No rows match current filters")
         return empty, empty
 
+    testname = str(dff["TESTNAME"].iloc[0]) if "TESTNAME" in dff.columns and not dff.empty else ""
     unit = dff["UNITS"].unique()[0]
-    dff, x_col = _apply_transform_and_outliers(dff, transform, outlier_handling)
+    with _timed("figures.apply_transform_outliers", nrows=int(len(dff))):
+        dff, x_col = _apply_transform_and_outliers(dff, transform, outlier_handling)
     if dff.empty:
         empty = _empty_figure("No rows match current filters")
         return empty, empty
@@ -559,14 +622,15 @@ def update_figures(
         palette = px.colors.qualitative.Plotly
         colors = [palette[i % len(palette)] for i in range(len(hist_labels))]
 
-    dist_fig = ff.create_distplot(
-        hist_data=hist_data,
-        group_labels=hist_labels,
-        colors=colors,
-        show_hist=True,
-        show_rug=False,
-        bin_size=freedman_bin_width(dff[x_col]),
-    )
+    with _timed("figures.distplot.build", nrows=int(len(dff))):
+        dist_fig = ff.create_distplot(
+            hist_data=hist_data,
+            group_labels=hist_labels,
+            colors=colors,
+            show_hist=True,
+            show_rug=False,
+            bin_size=freedman_bin_width(dff[x_col]),
+        )
     dist_fig.update_layout(
         template="plotly_white",
         title="Histogram",
@@ -575,17 +639,18 @@ def update_figures(
         margin=dict(l=40, r=20, t=60, b=40),
     )
 
-    box_fig = px.box(
-        dff,
-        x=group_col,
-        y=x_col,
-        points="all",
-        color=group_col,
-        category_orders=category_orders,
-        color_discrete_map=color_map,
-        labels={group_col: group_col, x_col: x_label},
-        title="Boxplots",
-    )
+    with _timed("figures.box.build", nrows=int(len(dff))):
+        box_fig = px.box(
+            dff,
+            x=group_col,
+            y=x_col,
+            points="all",
+            color=group_col,
+            category_orders=category_orders,
+            color_discrete_map=color_map,
+            labels={group_col: group_col, x_col: x_label},
+            title="Boxplots",
+        )
     box_fig.update_layout(
         template="plotly_white",
         margin=dict(l=40, r=20, t=60, b=40),
@@ -598,28 +663,31 @@ def update_figures(
 @callback(
     Output("stats-results", "children"),
     [
-        Input("testname", "value"),
+        Input("analysis-store", "data"),
         Input("groupby", "value"),
         Input("cohort_filter", "value"),
-        Input("gba_filter_mode", "value"),
         Input("transform", "value"),
         Input("outlier_removal", "value"),
     ],
 )
 def update_stats_table(
-    testname: str | None,
+    store_json: str | None,
     groupby: str | None,
     cohort_filter: list[str] | None,
-    gba_filter_mode: str | None,
     transform: str | None,
     outlier_handling: str | None,
 ):
-    if not testname:
+    if not store_json:
         return html.Div("Select a biomarker to see cohort regression results.")
 
-    model_df, group_col, testvalue_col = _build_model_df(
-        testname, groupby, cohort_filter, gba_filter_mode, transform, outlier_handling
-    )
+    with _timed("analysis.store.deserialize.stats"):
+        base = pd.read_json(StringIO(store_json), orient="split")
+    if base.empty:
+        return html.Div("No rows match current filters; regression tests are unavailable.")
+
+    group_col = groupby if groupby in {"COHORT", "HEURISTIC"} else "COHORT"
+    with _timed("stats.apply_transform_outliers", nrows=int(len(base))):
+        model_df, testvalue_col = _apply_transform_and_outliers(base, transform, outlier_handling)
     if model_df.empty:
         return html.Div("No rows match current filters; regression tests are unavailable.")
 
@@ -636,15 +704,16 @@ def update_stats_table(
         )
 
     try:
-        omnibus_df, pairwise_df = run_biomarker_by_biomarker_cohort_regressions(
-            model_df,
-            standardize_within_biomarker=True,
-            cohort_col=group_col,
-            cohort_categories=cohort_categories,
-            testvalue_col=testvalue_col,
-            z_col=z_col,
-            outlier_handling="none",
-        )
+        with _timed("stats.regression.run", nrows=int(len(model_df)), group_col=group_col):
+            omnibus_df, pairwise_df = run_biomarker_by_biomarker_cohort_regressions(
+                model_df,
+                standardize_within_biomarker=True,
+                cohort_col=group_col,
+                cohort_categories=cohort_categories,
+                testvalue_col=testvalue_col,
+                z_col=z_col,
+                outlier_handling="none",
+            )
     except Exception as e:
         return html.Div(f"Regression failed: {e}")
 
