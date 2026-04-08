@@ -8,6 +8,7 @@ dash-ag-grid>=33.0.0
 statsmodels>=0.14
 pyyaml>=6.0
 astropy>=7.0
+python-dotenv>=1.0
 sqlalchemy>=2.0
 mysqlclient>=2.2
 pymysql>=1.1

@@ -2,7 +2,12 @@
 *.DS_Store
 .vscode/*
 
-.env.local
+.env
+.env.*
+!.env.example
+
+.venv/
+.env/   # legacy virtualenv folder name (do not use)
 
 data/*
 # output/*

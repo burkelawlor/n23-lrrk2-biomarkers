@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import os
+from dotenv import load_dotenv
 import dash
 import dash_bootstrap_components as dbc
 from dash import Dash, dcc, html
+
+try:
+    load_dotenv(".env")
+except Exception:
+    pass
 
 
 def _header(app: Dash):
@@ -59,5 +66,7 @@ app.layout = html.Div(
 
 
 if __name__ == "__main__":
+    # Dash's debug reloader spawns a child process; ensure env is visible there too.
+    os.environ.setdefault("PYTHONUNBUFFERED", "1")
     app.run(debug=True)
 
