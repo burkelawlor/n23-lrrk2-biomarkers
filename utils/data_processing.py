@@ -100,7 +100,6 @@ def append_to_cleaned_biospecimen_csv(
     *,
     output_path: Path | str | None = None,
     project_metadata_path: Path | str | None = None,
-    db_path: Path | str | None = None,
     dedupe_subset: Sequence[str] | None = None,
     keep: Literal["first", "last"] = "first",
 ) -> pd.DataFrame:
@@ -128,9 +127,9 @@ def append_to_cleaned_biospecimen_csv(
     ``_CANONICAL_CLEANED_BIOSPECIMEN_COLUMNS``; any other columns on ``df`` or on disk
     are dropped. Missing canonical columns are filled with NA.
 
-    If ``db_path`` is provided (or left as None), rows are also appended into a local
-    SQLite database (default: ``data/processed/biomarkers.sqlite``) with the same
-    de-duplication semantics as the CSV (based on ``dedupe_subset``).
+    This function is intentionally file-based. Database ingestion (local or hosted)
+    is handled by scripts under ``scripts/`` so both ingestion methods share the
+    same code path.
     """
     out = Path(output_path) if output_path is not None else _DEFAULT_OUTPUT_PATH
     proj_path = (
@@ -181,19 +180,5 @@ def append_to_cleaned_biospecimen_csv(
         proj_path.parent.mkdir(parents=True, exist_ok=True)
         projects = _merge_project_metadata(incoming_meta, proj_path, keep=keep)
         _atomic_to_csv(projects, proj_path)
-
-    # Optional DB write path: keep it after CSV so disk artifacts remain available
-    # even if DB insert fails for some environmental reason.
-    try:
-        from utils.db import append_analysis, get_engine, upsert_projects
-
-        engine = get_engine(db_path)
-        append_analysis(engine, combined)
-        if not incoming_meta.empty:
-            upsert_projects(engine, projects if "projects" in locals() else incoming_meta)
-    except Exception:
-        # The CSV is the canonical artifact; callers can opt into DB use later.
-        # Re-raise if you prefer failing fast on DB issues.
-        pass
 
     return combined

@@ -10,9 +10,16 @@ from astropy.stats import freedman_bin_width
 from dash import Input, Output, State, callback, dcc, dash_table, html
 import dash
 import dash_bootstrap_components as dbc
+from sqlalchemy import text
 
 from utils.biomarker_regression import run_biomarker_by_biomarker_cohort_regressions
-from utils.db import fetch_analysis_subset, get_engine, get_project_rundates_lookup, get_projects_lookup, get_testnames
+from utils.db_runtime import (
+    fetch_analysis_subset,
+    get_engine_from_env,
+    get_project_rundates_lookup,
+    get_projects_lookup,
+    get_testnames,
+)
 from utils.outliers import drop_outlier_rows
 from utils.regression_config import effective_config, load_regression_configs
 
@@ -25,7 +32,7 @@ dash.register_page(
 )
 
 
-DB_PATH = Path("./data/processed/biomarkers.sqlite")
+_ENGINE = None
 
 COHORTS: dict[str, dict[str, object]] = {
     "COHORT": {
@@ -109,17 +116,19 @@ def _normalize_analysis_df(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-ENGINE = get_engine(DB_PATH)
-PROJECTS_LOOKUP = get_projects_lookup(ENGINE)
-PROJECT_RUNDATES_LOOKUP = get_project_rundates_lookup(ENGINE)
+def _engine():
+    global _ENGINE
+    if _ENGINE is None:
+        _ENGINE = get_engine_from_env()
+    return _ENGINE
 
 _REGRESSION_CONFIG_PATH = Path(__file__).resolve().parents[1] / "regression_configs.yaml"
 _GLOBAL_CFG, _PROJECT_CFGS, _TEST_CFGS = load_regression_configs(_REGRESSION_CONFIG_PATH)
 
-TESTNAMES = get_testnames(ENGINE)
+TESTNAMES = get_testnames(_engine())
 DEFAULT_TESTNAME = TESTNAMES[0] if TESTNAMES else None
 try:
-    _cohort_df = pd.read_sql_query("SELECT DISTINCT COHORT FROM analysis", ENGINE)
+    _cohort_df = pd.read_sql_query("SELECT DISTINCT COHORT FROM analysis", _engine())
     _present_cohorts = set(_cohort_df["COHORT"].dropna().astype(str).tolist())
 except Exception:
     _present_cohorts = set()
@@ -136,7 +145,7 @@ def _modal_project_id_for_testname(testname: str) -> int | None:
         ORDER BY n DESC
         LIMIT 1
         """
-        pid_df = pd.read_sql_query(q, ENGINE, params={"testname": str(testname)})
+        pid_df = pd.read_sql_query(text(q), _engine(), params={"testname": str(testname)})
     except Exception:
         return None
 
@@ -159,7 +168,6 @@ def _transform_radio_value_for_testname(testname: str | None) -> str:
         test_cfgs=_TEST_CFGS,
     )
     return "log" if cfg.log_transform else "none"
-
 
 DEFAULT_TRANSFORM_VALUE = _transform_radio_value_for_testname(DEFAULT_TESTNAME)
 
@@ -338,7 +346,7 @@ def _filtered_df(
     gba_filter_mode: str | None,
 ) -> pd.DataFrame:
     dff = fetch_analysis_subset(
-        ENGINE,
+        _engine(),
         testname=str(testname),
         cohort_filter=cohort_filter,
         gba_filter_mode=gba_filter_mode,
@@ -423,7 +431,7 @@ def update_biomarker_header(testname: str | None):
         return str(testname), meta_children
 
     meta_children.append(html.Div(f"Project ID: {project_id}"))
-    info = PROJECTS_LOOKUP.get(project_id)
+    info = get_projects_lookup(_engine()).get(project_id)
     if info:
         meta_children.append(html.Div(f"PI Name: {info.get('PI_NAME', '')}"))
         meta_children.append(html.Div(f"PI Institution: {info.get('PI_INSTITUTION', '')}"))
@@ -431,7 +439,7 @@ def update_biomarker_header(testname: str | None):
         meta_children.append(html.Div("PI Name: (unknown)"))
         meta_children.append(html.Div("PI Institution: (unknown)"))
 
-    date_info = PROJECT_RUNDATES_LOOKUP.get(project_id)
+    date_info = get_project_rundates_lookup(_engine()).get(project_id)
     if date_info and date_info.get("min_date") is not None and date_info.get("max_date") is not None:
         min_d = pd.to_datetime(date_info["min_date"]).date().isoformat()
         max_d = pd.to_datetime(date_info["max_date"]).date().isoformat()
