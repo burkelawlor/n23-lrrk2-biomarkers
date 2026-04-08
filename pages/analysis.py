@@ -466,13 +466,14 @@ def update_biomarker_header(testname: str | None):
         meta_children.append(html.Div("PI Name: (unknown)"))
         meta_children.append(html.Div("PI Institution: (unknown)"))
 
-    date_info = _cached_project_rundates(project_id)
-    if date_info and date_info.get("min_date") is not None and date_info.get("max_date") is not None:
-        min_d = pd.to_datetime(date_info["min_date"]).date().isoformat()
-        max_d = pd.to_datetime(date_info["max_date"]).date().isoformat()
-        meta_children.append(html.Div(f"Run dates: {min_d} to {max_d}"))
-    else:
-        meta_children.append(html.Div("Run dates: (unknown)"))
+    # Temporarily disabled: project run-date lookup can be slow on remote MySQL.
+    # date_info = _cached_project_rundates(project_id)
+    # if date_info and date_info.get("min_date") is not None and date_info.get("max_date") is not None:
+    #     min_d = pd.to_datetime(date_info["min_date"]).date().isoformat()
+    #     max_d = pd.to_datetime(date_info["max_date"]).date().isoformat()
+    #     meta_children.append(html.Div(f"Run dates: {min_d} to {max_d}"))
+    # else:
+    #     meta_children.append(html.Div("Run dates: (unknown)"))
 
     return str(testname), meta_children
 
