@@ -6,6 +6,8 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import Dash, dcc, html
 
+from utils.cache_runtime import init_cache
+
 try:
     load_dotenv(".env")
 except Exception:
@@ -46,6 +48,7 @@ def _header(app: Dash):
 
 app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], use_pages=True)
 app.title = "Biomarker Dashboard"
+init_cache(app.server)
 
 app.layout = html.Div(
     style={"minHeight": "100vh", "display": "flex", "flexDirection": "column"},
