@@ -5,7 +5,6 @@ from typing import Any, Iterable
 
 import pandas as pd
 from sqlalchemy import Engine, text
-from tqdm import tqdm
 
 
 def init_schema(engine: Engine) -> None:
@@ -197,14 +196,10 @@ def load_csv_to_mysql(
     num_chunks = (total_lines // int(chunksize)) + (1 if total_lines % int(chunksize) else 0)
 
     for idx, chunk in enumerate(
-        tqdm(
-            pd.read_csv(analysis_path, low_memory=False, chunksize=int(chunksize)), 
-            total=num_chunks, 
-            desc="Ingesting analysis chunks"
-        ), 1
+        pd.read_csv(analysis_path, low_memory=False, chunksize=int(chunksize)), 1
     ):
         insert_analysis_ignore_duplicates_mysql(engine, chunk)
-        tqdm.write(f"Inserted chunk {idx}")
+        print(f"Inserted chunk {idx}/{num_chunks}")
 
     print("All analysis chunks processed.")
 

@@ -4,7 +4,7 @@ This repo contains data cleaning, code to run regression analyses, and a Plotly 
 
 ## Running locally
 
-Make sure MySQL is running and `DATABASE_URL` is set:
+Make sure MySQL is running and `DATABASE_URL` is set (recommended: store it in `.env`):
 
 ```bash
 docker compose up -d
@@ -63,7 +63,7 @@ Then open `http://127.0.0.1:8050` in your browser.
 
 ### 1) Ingest cleaned biomarkers to the PythonAnywhere database (from your computer)
 
-PythonAnywhere MySQL is not reachable from the public internet; use an SSH tunnel (paid accounts). Pythonanywhere environment variable should be set in stored in `.env.local` (se [Accessing your MySQL database from outside PythonAnywhere](https://help.pythonanywhere.com/pages/AccessingMySQLFromOutsidePythonAnywhere/)). 
+PythonAnywhere MySQL is not reachable from the public internet; use an SSH tunnel (paid accounts). Store the PythonAnywhere environment variables in `.env` (see [Accessing your MySQL database from outside PythonAnywhere](https://help.pythonanywhere.com/pages/AccessingMySQLFromOutsidePythonAnywhere/)). 
 
 Then run:
 

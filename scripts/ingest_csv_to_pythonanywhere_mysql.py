@@ -31,7 +31,7 @@ if str(_REPO_ROOT) not in sys.path:
 from utils.db_ingest import load_csv_to_mysql
 from utils.db_runtime import create_engine_from_url
 
-load_dotenv('.env.local')
+load_dotenv(".env")
 SSH_HOSTNAME = "ssh.pythonanywhere.com"
 SSH_USERNAME = os.getenv("PYTHONANYWHERE_SSH_USERNAME")
 MYSQL_REMOTE_HOST = os.getenv("PYTHONANYWHERE_MYSQL_REMOTE_HOST")
