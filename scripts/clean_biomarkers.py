@@ -24,7 +24,7 @@ def _pick_latest(data_dir: Path, pattern: str) -> Path:
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=(
-            "Clean raw biospecimen data per project and append to the local SQLite DB "
+            "Clean raw biospecimen data per project and append to an optional local MySQL DB "
             "and cleaned CSVs. Each project has its own cleaning function; see "
             "notebooks/data_cleaning.ipynb."
         )
@@ -36,10 +36,14 @@ def _parse_args() -> argparse.Namespace:
         help="Directory containing raw CSV inputs (default: data/raw).",
     )
     p.add_argument(
-        "--db-path",
+        "--database-url",
         type=str,
         default=None,
-        help="Optional SQLite DB path (default: data/processed/biomarkers.sqlite).",
+        help=(
+            "Optional SQLAlchemy DATABASE_URL to also load rows into a MySQL DB after "
+            "writing cleaned CSV artifacts "
+            '(example: "mysql+pymysql://user:pass@127.0.0.1:3306/biomarkers").'
+        ),
     )
     p.add_argument(
         "--output-analysis-csv",
@@ -135,16 +139,16 @@ def clean_project_151(data_dir: Path, ml_df: pd.DataFrame, age_df: pd.DataFrame)
     project_151 = project_151.merge(ml_df, on="PATNO", how="left")
     project_151 = project_151.merge(age_df, on=["PATNO", "CLINICAL_EVENT"], how="left")
 
-    curated = {
-        "C1QTNF1_6304-8_3",
-        "HLA-DQA2_7757-5_3",
-        "GPNMB_8240-207_3",
-        "GRN_4992-49_1",
-        "GPNMB_5080-131_3",
-        "ITGB2_12750-9_3",
-        "ENTPD1_3182-38_2",
-    }
-    project_151 = project_151.loc[project_151["TESTNAME"].astype(str).isin(curated)].copy()
+    # curated = {
+    #     "C1QTNF1_6304-8_3",
+    #     "HLA-DQA2_7757-5_3",
+    #     "GPNMB_8240-207_3",
+    #     "GRN_4992-49_1",
+    #     "GPNMB_5080-131_3",
+    #     "ITGB2_12750-9_3",
+    #     "ENTPD1_3182-38_2",
+    # }
+    # project_151 = project_151.loc[project_151["TESTNAME"].astype(str).isin(curated)].copy()
     return project_151
 
 
@@ -163,7 +167,6 @@ def main() -> None:
     append_kw: dict = {
         "output_path": args.output_analysis_csv,
         "project_metadata_path": args.output_projects_csv,
-        "db_path": args.db_path,
         "keep": "last",
     }
 
@@ -183,7 +186,21 @@ def main() -> None:
         append_to_cleaned_biospecimen_csv(df, **append_kw)
         print(f"Appended project {label}: {len(df)} rows.")
 
-    print("Done. Updated cleaned CSV(s) and SQLite DB (per project).")
+    if args.database_url:
+        from utils.db_ingest import load_csv_to_mysql
+        from utils.db_runtime import create_engine_from_url
+
+        analysis_csv = args.output_analysis_csv or str(_REPO_ROOT / "data" / "processed" / "cleaned_biospecimen_analysis.csv")
+        projects_csv = args.output_projects_csv or str(_REPO_ROOT / "data" / "processed" / "cleaned_biospecimen_projects.csv")
+        engine = create_engine_from_url(args.database_url)
+        load_csv_to_mysql(
+            engine,
+            analysis_csv_path=analysis_csv,
+            projects_csv_path=projects_csv,
+        )
+        print(f"Loaded cleaned CSV artifacts into {args.database_url}.")
+
+    print("Done. Updated cleaned CSV(s).")
 
 
 if __name__ == "__main__":
