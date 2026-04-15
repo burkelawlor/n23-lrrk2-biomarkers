@@ -4,11 +4,10 @@ This repo contains data cleaning, code to run regression analyses, and a Plotly 
 
 ## Running locally
 
-Make sure MySQL is running and `DATABASE_URL` is set (recommended: store it in `.env`):
+Make sure MySQL is running. The cleaner will use `DATABASE_URL` from your environment (recommended: store it in `.env` in the repo root).
 
 ```bash
 docker compose up -d
-export DATABASE_URL="mysql+pymysql://biomarkers:biomarkers@127.0.0.1:3306/biomarkers"
 ```
 
 ### 1) Clean biomarkers
@@ -16,10 +15,11 @@ export DATABASE_URL="mysql+pymysql://biomarkers:biomarkers@127.0.0.1:3306/biomar
 From the repo root:
 
 ```bash
-python3 scripts/clean_biomarkers.py --database-url "$DATABASE_URL"
+python3 scripts/clean_biomarkers.py
 ```
 
-`--database-url` tells the cleaner where to write cleaned rows (and enables DB-backed workflows, instead of only producing CSV outputs).
+Run for a single project with the flag `--project-id`. By default, `scripts/clean_biomarkers.py` loads `.env` and uses `DATABASE_URL` (if set) to also load the cleaned CSV artifacts into MySQL. Override the DB destination by setting `--database-url` to a valid url, or skip DB loading entierly by passing "". 
+
 
 This produces/updates:
 

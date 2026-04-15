@@ -161,6 +161,106 @@ def insert_analysis_ignore_duplicates_mysql(engine: Engine, analysis_df: pd.Data
         conn.execute(insert_sql, rows)
 
 
+def upsert_project_metadata_mysql(engine: Engine, *, projects_df: pd.DataFrame, project_id: int) -> None:
+    if projects_df.empty:
+        return
+    if "PROJECTID" not in projects_df.columns:
+        return
+    dfc = projects_df.copy()
+    dfc["PROJECTID"] = pd.to_numeric(dfc["PROJECTID"], errors="coerce")
+    dfc = dfc.dropna(subset=["PROJECTID"])
+    if dfc.empty:
+        return
+    dfc["PROJECTID"] = dfc["PROJECTID"].astype(int)
+    dfc = dfc.loc[dfc["PROJECTID"] == int(project_id)].copy()
+    if dfc.empty:
+        return
+    upsert_projects_mysql(engine, dfc)
+
+
+def replace_project_analysis_mysql(engine: Engine, *, project_id: int, analysis_df: pd.DataFrame) -> None:
+    """
+    Replace all `analysis` rows for a single PROJECTID.
+
+    Intended for fast incremental updates when only one project was re-cleaned.
+    """
+    init_schema(engine)
+    if analysis_df.empty:
+        return
+    if "PROJECTID" not in analysis_df.columns:
+        raise ValueError("analysis replace requires a PROJECTID column.")
+
+    dfc = analysis_df.copy()
+    dfc["PROJECTID"] = pd.to_numeric(dfc["PROJECTID"], errors="coerce")
+    dfc = dfc.dropna(subset=["PROJECTID"])
+    if dfc.empty:
+        return
+    dfc["PROJECTID"] = dfc["PROJECTID"].astype(int)
+    dfc = dfc.loc[dfc["PROJECTID"] == int(project_id)].copy()
+    if dfc.empty:
+        return
+
+    # Align with insert validation rules and MySQL DATE storage.
+    required = {"PATNO", "PROJECTID", "TESTNAME", "CLINICAL_EVENT", "TYPE", "RUNDATE"}
+    missing = required - set(dfc.columns)
+    if missing:
+        raise ValueError(f"analysis replace is missing required columns: {sorted(missing)}")
+
+    dfc["PATNO"] = pd.to_numeric(dfc["PATNO"], errors="coerce")
+    dfc = dfc.dropna(subset=["PATNO", "RUNDATE"])
+    if dfc.empty:
+        # Still delete prior rows so the DB mirrors the empty result for this project.
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM analysis WHERE PROJECTID = :project_id"), {"project_id": int(project_id)})
+        return
+    dfc["PATNO"] = dfc["PATNO"].astype(int)
+    dfc["RUNDATE"] = pd.to_datetime(dfc["RUNDATE"], errors="coerce").dt.date
+    dfc = dfc.dropna(subset=["RUNDATE"])
+
+    # De-duplicate within the project to avoid unique-key conflicts.
+    dfc = dfc.drop_duplicates(
+        subset=["PATNO", "PROJECTID", "TESTNAME", "CLINICAL_EVENT", "TYPE", "RUNDATE"],
+        keep="last",
+    )
+
+    cols = [
+        "PATNO",
+        "SEX",
+        "AGE_AT_VISIT",
+        "COHORT",
+        "CLINICAL_EVENT",
+        "TYPE",
+        "TESTNAME",
+        "TESTVALUE",
+        "UNITS",
+        "RUNDATE",
+        "PROJECTID",
+        "RV",
+        "GBA",
+        "PREDICTED",
+        "DRIVEN",
+        "HEURISTIC",
+    ]
+    rows = _to_records(dfc, columns=cols)
+    delete_sql = text("DELETE FROM analysis WHERE PROJECTID = :project_id")
+    insert_sql = text(
+        """
+        INSERT INTO analysis (
+            PATNO, SEX, AGE_AT_VISIT, COHORT, CLINICAL_EVENT, TYPE, TESTNAME, TESTVALUE,
+            UNITS, RUNDATE, PROJECTID, RV, GBA, PREDICTED, DRIVEN, HEURISTIC
+        )
+        VALUES (
+            :PATNO, :SEX, :AGE_AT_VISIT, :COHORT, :CLINICAL_EVENT, :TYPE, :TESTNAME, :TESTVALUE,
+            :UNITS, :RUNDATE, :PROJECTID, :RV, :GBA, :PREDICTED, :DRIVEN, :HEURISTIC
+        )
+        """
+    )
+    with engine.begin() as conn:
+        conn.execute(delete_sql, {"project_id": int(project_id)})
+        if rows:
+            conn.execute(insert_sql, rows)
+
+
 def load_csv_to_mysql(
     engine: Engine,
     *,

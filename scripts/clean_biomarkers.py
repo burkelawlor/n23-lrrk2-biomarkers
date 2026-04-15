@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
+from dotenv import load_dotenv
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
@@ -22,12 +24,22 @@ def _pick_latest(data_dir: Path, pattern: str) -> Path:
 
 
 def _parse_args() -> argparse.Namespace:
+    load_dotenv(_REPO_ROOT / ".env")
     p = argparse.ArgumentParser(
         description=(
             "Clean raw biospecimen data per project and append to an optional local MySQL DB "
             "and cleaned CSVs. Each project has its own cleaning function; see "
             "notebooks/data_cleaning.ipynb."
         )
+    )
+    p.add_argument(
+        "--projectid",
+        type=int,
+        default=None,
+        help=(
+            "If provided, only run the cleaner for this PPMI PROJECTID "
+            "(e.g. --projectid 145 runs only clean_project_145)."
+        ),
     )
     p.add_argument(
         "--data-dir",
@@ -38,11 +50,12 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--database-url",
         type=str,
-        default=None,
+        default=os.getenv("DATABASE_URL"),
         help=(
             "Optional SQLAlchemy DATABASE_URL to also load rows into a MySQL DB after "
             "writing cleaned CSV artifacts "
-            '(example: "mysql+pymysql://user:pass@127.0.0.1:3306/biomarkers").'
+            '(example: "mysql+pymysql://user:pass@127.0.0.1:3306/biomarkers"). '
+            "Defaults to env var DATABASE_URL (loaded from .env if present)."
         ),
     )
     p.add_argument(
@@ -103,20 +116,16 @@ def _dedupe_biomarker_rows(df: pd.DataFrame) -> pd.DataFrame:
     return dff
 
 
+def clean_project_105(biomarker_df: pd.DataFrame) -> pd.DataFrame:
+    project_105 = biomarker_df.loc[biomarker_df["PROJECTID"] == 105].copy()
+    return project_105
+
 def clean_project_145(biomarker_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Project 145 (Urine BMP): rows come from the main biospecimen results export.
-    Mirrors notebooks/data_cleaning.ipynb (merge ML + age, then subset PROJECTID == 145).
-    """
     project_145 = biomarker_df.loc[biomarker_df["PROJECTID"] == 145].copy()
     return project_145
 
 
 def clean_project_151(data_dir: Path, ml_df: pd.DataFrame, age_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Project 151 (CSF SomaScan): seven batch-corrected files, annotation key for TESTNAME,
-    then ML + age merges and the curated biomarker subset from the notebook.
-    """
     files_151 = sorted(data_dir.glob("Project_151_pQTL_in_CSF_*_of_7_Batch_Corrected__*.csv"))
     if not files_151:
         return pd.DataFrame()
@@ -156,6 +165,11 @@ def main() -> None:
     args = _parse_args()
     data_dir = (_REPO_ROOT / args.data_dir).resolve()
 
+    if args.projectid is not None:
+        print(f"Running cleaner for project {args.projectid}.")
+    else:
+        print("Running cleaner for all projects.")
+
     ml_df = _build_ml_df(data_dir)
     age_df = _build_age_df(data_dir)
 
@@ -173,7 +187,20 @@ def main() -> None:
     project_cleaners: list[tuple[str, Callable[..., pd.DataFrame]]] = [
         ("145", clean_project_145),
         ("151", clean_project_151),
+        ("105", clean_project_105),
     ]
+
+    if args.projectid is not None:
+        wanted = str(args.projectid)
+        available = {label for label, _ in project_cleaners}
+        if wanted not in available:
+            raise SystemExit(
+                f"--projectid {args.projectid} is not supported by this script. "
+                f"Available: {', '.join(sorted(available, key=int))}"
+            )
+        project_cleaners = [(label, cleaner) for (label, cleaner) in project_cleaners if label == wanted]
+
+    cleaned_by_project: dict[str, pd.DataFrame] = {}
 
     for label, cleaner in project_cleaners:
         if label == "151":
@@ -184,21 +211,48 @@ def main() -> None:
             print(f"Skipping project {label}: no rows after cleaning.")
             continue
         append_to_cleaned_biospecimen_csv(df, **append_kw)
+        cleaned_by_project[label] = df
         print(f"Appended project {label}: {len(df)} rows.")
 
     if args.database_url:
-        from utils.db_ingest import load_csv_to_mysql
         from utils.db_runtime import create_engine_from_url
 
-        analysis_csv = args.output_analysis_csv or str(_REPO_ROOT / "data" / "processed" / "cleaned_biospecimen_analysis.csv")
-        projects_csv = args.output_projects_csv or str(_REPO_ROOT / "data" / "processed" / "cleaned_biospecimen_projects.csv")
         engine = create_engine_from_url(args.database_url)
-        load_csv_to_mysql(
-            engine,
-            analysis_csv_path=analysis_csv,
-            projects_csv_path=projects_csv,
-        )
-        print(f"Loaded cleaned CSV artifacts into {args.database_url}.")
+        if args.projectid is not None:
+            from utils.db_ingest import replace_project_analysis_mysql, upsert_project_metadata_mysql
+
+            label = str(args.projectid)
+            df = cleaned_by_project.get(label)
+            if df is None or df.empty:
+                print(f"Skipping DB upsert for project {label}: no rows after cleaning.")
+            else:
+                replace_project_analysis_mysql(engine, project_id=int(args.projectid), analysis_df=df)
+
+                projects_csv = Path(
+                    args.output_projects_csv
+                    or (_REPO_ROOT / "data" / "processed" / "cleaned_biospecimen_projects.csv")
+                )
+                if projects_csv.exists():
+                    projects_df = pd.read_csv(projects_csv, low_memory=False)
+                    upsert_project_metadata_mysql(
+                        engine, projects_df=projects_df, project_id=int(args.projectid)
+                    )
+                print(f"Upserted project {label} into MySQL.")
+        else:
+            from utils.db_ingest import load_csv_to_mysql
+
+            analysis_csv = args.output_analysis_csv or str(
+                _REPO_ROOT / "data" / "processed" / "cleaned_biospecimen_analysis.csv"
+            )
+            projects_csv = args.output_projects_csv or str(
+                _REPO_ROOT / "data" / "processed" / "cleaned_biospecimen_projects.csv"
+            )
+            load_csv_to_mysql(
+                engine,
+                analysis_csv_path=analysis_csv,
+                projects_csv_path=projects_csv,
+            )
+            print("Loaded cleaned CSV artifacts into MySQL.")
 
     print("Done. Updated cleaned CSV(s).")
 
