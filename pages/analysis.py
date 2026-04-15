@@ -15,6 +15,7 @@ from astropy.stats import freedman_bin_width
 from dash import Input, Output, State, callback, dcc, dash_table, html
 import dash
 import dash_bootstrap_components as dbc
+import dash_mantine_components as dmc
 from sqlalchemy import text
 
 from utils.cache_runtime import memoize
@@ -144,7 +145,62 @@ def _engine():
 _REGRESSION_CONFIG_PATH = Path(__file__).resolve().parents[1] / "regression_configs.yaml"
 _GLOBAL_CFG, _PROJECT_CFGS, _TEST_CFGS = load_regression_configs(_REGRESSION_CONFIG_PATH)
 
-TESTNAMES = get_testnames(_engine())
+def _get_grouped_testname_select_data() -> tuple[list[dict[str, object]], list[str]]:
+    """
+    Returns (mantine_data, flat_testnames).
+
+    Mantine grouped data looks like:
+      [{"group": "Project 145", "items": [{"value": "...", "label": "..."}, ...]}, ...]
+    """
+    try:
+        q = """
+        SELECT DISTINCT PROJECTID, TESTNAME
+        FROM analysis
+        WHERE TESTNAME IS NOT NULL
+        ORDER BY PROJECTID, TESTNAME
+        """
+        with _timed("testname_select.grouped_options.query"):
+            df = pd.read_sql_query(text(q), _engine())
+    except Exception:
+        # Fallback to the existing helper if the grouped query fails (eg. missing table).
+        tns = get_testnames(_engine())
+        return (
+            [
+                {
+                    "group": "Biomarkers",
+                    "items": [{"label": t, "value": t} for t in tns],
+                }
+            ]
+            if tns
+            else [],
+            tns,
+        )
+
+    if df.empty or "TESTNAME" not in df.columns:
+        return ([], [])
+
+    df = df.copy()
+    df["TESTNAME"] = df["TESTNAME"].astype(str)
+    df["PROJECTID"] = pd.to_numeric(df.get("PROJECTID"), errors="coerce")
+    df["group"] = df["PROJECTID"].apply(lambda v: int(v) if pd.notna(v) else None)
+
+    grouped: dict[str, list[dict[str, str]]] = {}
+    for row in df.itertuples(index=False):
+        group_label = (
+            f"Project {int(row.PROJECTID)}" if pd.notna(row.PROJECTID) else "Project (Unknown)"
+        )
+        grouped.setdefault(group_label, []).append(
+            {"label": str(row.TESTNAME), "value": str(row.TESTNAME)}
+        )
+
+    mantine_data: list[dict[str, object]] = [
+        {"group": group_label, "items": items} for group_label, items in grouped.items()
+    ]
+    testnames: list[str] = df["TESTNAME"].tolist()
+    return mantine_data, testnames
+
+
+TESTNAME_SELECT_DATA, TESTNAMES = _get_grouped_testname_select_data()
 DEFAULT_TESTNAME = TESTNAMES[0] if TESTNAMES else None
 try:
     _cohort_df = pd.read_sql_query("SELECT DISTINCT COHORT FROM analysis", _engine())
@@ -234,12 +290,25 @@ def generate_control_card():
             dbc.CardBody(
                 [
                     html.H5("Select Biomarker", className="card-title"),
-                    dcc.Dropdown(
-                        id="testname",
-                        options=[{"label": t, "value": t} for t in TESTNAMES],
-                        value=DEFAULT_TESTNAME,
-                        clearable=False,
-                        placeholder="No biomarkers found in TESTNAME",
+                    (
+                        dmc.Select(
+                            id="testname",
+                            data=TESTNAME_SELECT_DATA,
+                            value=DEFAULT_TESTNAME,
+                            clearable=False,
+                            searchable=True,
+                            placeholder="No biomarkers found in TESTNAME",
+                            nothingFoundMessage="No biomarkers found",
+                            maxDropdownHeight=320,
+                        )
+                        if dmc is not None
+                        else dcc.Dropdown(
+                            id="testname",
+                            options=[{"label": t, "value": t} for t in TESTNAMES],
+                            value=DEFAULT_TESTNAME,
+                            clearable=False,
+                            placeholder="No biomarkers found in TESTNAME",
+                        )
                     ),
                 ]
             )
