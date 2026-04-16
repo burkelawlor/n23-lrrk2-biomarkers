@@ -5,23 +5,16 @@ import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from dotenv import load_dotenv
 
 import pandas as pd
-from dotenv import load_dotenv
+import numpy as np
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from utils.data_processing import append_to_cleaned_biospecimen_csv
-
-
-def _pick_latest(data_dir: Path, pattern: str) -> Path:
-    matches = sorted(data_dir.glob(pattern))
-    if not matches:
-        raise FileNotFoundError(f"No files match {pattern!r} in {data_dir}")
-    return matches[-1]
-
 
 def _parse_args() -> argparse.Namespace:
     load_dotenv(_REPO_ROOT / ".env")
@@ -96,14 +89,14 @@ def _build_ml_df(data_dir: Path) -> pd.DataFrame:
 
 
 def _build_age_df(data_dir: Path) -> pd.DataFrame:
-    age_path = _pick_latest(data_dir, "Age_at_visit_*.csv")
+    age_path = data_dir / "Age_at_visit_24Mar2026.csv"
     age = pd.read_csv(age_path).rename(columns={"EVENT_ID": "CLINICAL_EVENT"})
     age = age.drop_duplicates(subset=["PATNO", "CLINICAL_EVENT"], keep="last")
     return age
 
 
 def _load_biospecimen_results(data_dir: Path) -> pd.DataFrame:
-    results_path = _pick_latest(data_dir, "Current_Biospecimen_Analysis_Results_*.csv")
+    results_path = data_dir / "Current_Biospecimen_Analysis_Results_06Mar2026.csv"
     return pd.read_csv(results_path, low_memory=False)
 
 
@@ -117,13 +110,27 @@ def _dedupe_biomarker_rows(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def clean_project_105(biomarker_df: pd.DataFrame) -> pd.DataFrame:
-    project_105 = biomarker_df.loc[biomarker_df["PROJECTID"] == 105].copy()
-    return project_105
+    df = biomarker_df.loc[biomarker_df["PROJECTID"] == 105].copy()
+    return df
+
+def clean_project_113(biomarker_df: pd.DataFrame) -> pd.DataFrame:
+    df = biomarker_df.loc[biomarker_df["PROJECTID"] == 113].copy()
+    return df
+
+def clean_project_114(biomarker_df: pd.DataFrame) -> pd.DataFrame:
+    df = biomarker_df.loc[biomarker_df["PROJECTID"] == 114].copy()
+    return df
 
 def clean_project_145(biomarker_df: pd.DataFrame) -> pd.DataFrame:
-    project_145 = biomarker_df.loc[biomarker_df["PROJECTID"] == 145].copy()
-    return project_145
+    df = biomarker_df.loc[biomarker_df["PROJECTID"] == 145].copy()
+    return df
 
+def clean_project_221(biomarker_df: pd.DataFrame) -> pd.DataFrame:
+    df = biomarker_df.loc[biomarker_df["PROJECTID"] == 221].copy()
+    df.replace('BLOQ', np.nan, inplace=True)
+    df.replace('NO DATA', np.nan, inplace=True)
+    df.replace('ERROR', np.nan, inplace=True)
+    return df
 
 def clean_project_151(data_dir: Path, ml_df: pd.DataFrame, age_df: pd.DataFrame) -> pd.DataFrame:
     files_151 = sorted(data_dir.glob("Project_151_pQTL_in_CSF_*_of_7_Batch_Corrected__*.csv"))
@@ -188,6 +195,9 @@ def main() -> None:
         ("145", clean_project_145),
         ("151", clean_project_151),
         ("105", clean_project_105),
+        ("114", clean_project_114),
+        ("113", clean_project_113),
+        ("221", clean_project_221),
     ]
 
     if args.projectid is not None:
