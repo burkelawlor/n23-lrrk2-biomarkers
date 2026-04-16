@@ -92,22 +92,25 @@ def _normalize_analysis_df(df: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Missing required columns: {sorted(missing)}")
 
-    out = df.loc[
-        :,
-        [
-            "TESTNAME",
-            "TESTVALUE",
-            "COHORT",
-            "HEURISTIC",
-            "GBA",
-            "UNITS",
-            "RUNDATE",
-            "SEX",
-            "PATNO",
-            "PROJECTID",
-            "AGE_AT_VISIT",
-        ],
-    ].copy()
+    keep_cols = [
+        "TESTNAME",
+        "TESTVALUE",
+        "COHORT",
+        "HEURISTIC",
+        "GBA",
+        "UNITS",
+        "RUNDATE",
+        "SEX",
+        "PATNO",
+        "PROJECTID",
+        "AGE_AT_VISIT",
+    ]
+    # Optional metadata columns that we want to preserve downstream (eg. for downloads).
+    for optional in ["CLINICAL_EVENT"]:
+        if optional in df.columns and optional not in keep_cols:
+            keep_cols.append(optional)
+
+    out = df.loc[:, keep_cols].copy()
 
     out["TESTVALUE"] = pd.to_numeric(out["TESTVALUE"], errors="coerce")
     out["GBA"] = pd.to_numeric(out["GBA"], errors="coerce")
@@ -182,22 +185,63 @@ def _get_grouped_testname_select_data() -> tuple[list[dict[str, object]], list[s
     df = df.copy()
     df["TESTNAME"] = df["TESTNAME"].astype(str)
     df["PROJECTID"] = pd.to_numeric(df.get("PROJECTID"), errors="coerce")
-    df["group"] = df["PROJECTID"].apply(lambda v: int(v) if pd.notna(v) else None)
+    # Identify testnames that appear in more than one project so we can make the
+    # option values unique for Mantine (it does not allow duplicate values).
+    per_testname_project_counts = (
+        df.loc[pd.notna(df["PROJECTID"]), ["TESTNAME", "PROJECTID"]]
+        .drop_duplicates()
+        .groupby("TESTNAME")["PROJECTID"]
+        .nunique()
+    )
+    duplicated_testnames = set(per_testname_project_counts[per_testname_project_counts > 1].index)
 
     grouped: dict[str, list[dict[str, str]]] = {}
     for row in df.itertuples(index=False):
         group_label = (
             f"Project {int(row.PROJECTID)}" if pd.notna(row.PROJECTID) else "Project (Unknown)"
         )
-        grouped.setdefault(group_label, []).append(
-            {"label": str(row.TESTNAME), "value": str(row.TESTNAME)}
+        testname = str(row.TESTNAME)
+        project_id = (
+            int(pd.to_numeric(row.PROJECTID, errors="coerce"))
+            if pd.notna(row.PROJECTID)
+            else None
         )
+
+        if testname in duplicated_testnames and project_id is not None:
+            value = f"{testname}||{project_id}"
+            label = f"{testname} (project {project_id})"
+        else:
+            value = testname
+            label = testname
+
+        grouped.setdefault(group_label, []).append({"label": label, "value": value})
 
     mantine_data: list[dict[str, object]] = [
         {"group": group_label, "items": items} for group_label, items in grouped.items()
     ]
-    testnames: list[str] = df["TESTNAME"].tolist()
+    # Use the option values (which may be composite) for default selection.
+    testnames: list[str] = [item["value"] for group in mantine_data for item in group["items"]]  # type: ignore[index]
     return mantine_data, testnames
+
+
+def _parse_testname_select_value(value: str | None) -> tuple[str | None, int | None]:
+    """
+    The biomarker select value is either:
+      - "<TESTNAME>" (unique across projects), or
+      - "<TESTNAME>||<PROJECTID>" (only when the TESTNAME is duplicated).
+    """
+    if not value:
+        return None, None
+    s = str(value)
+    if "||" not in s:
+        return s, None
+    left, right = s.rsplit("||", 1)
+    left = left.strip()
+    try:
+        pid = int(right.strip())
+    except Exception:
+        pid = None
+    return (left or None), pid
 
 
 TESTNAME_SELECT_DATA, TESTNAMES = _get_grouped_testname_select_data()
@@ -233,11 +277,12 @@ def _modal_project_id_for_testname(testname: str) -> int | None:
         return None
 
 
-def _transform_radio_value_for_testname(testname: str | None) -> str:
+def _transform_radio_value_for_testname(testname_select_value: str | None) -> str:
+    testname, project_id = _parse_testname_select_value(testname_select_value)
     if not testname:
         return "none"
     cfg = effective_config(
-        project_id=_modal_project_id_for_testname(str(testname)),
+        project_id=project_id if project_id is not None else _modal_project_id_for_testname(str(testname)),
         testname=str(testname),
         global_cfg=_GLOBAL_CFG,
         project_cfgs=_PROJECT_CFGS,
@@ -248,11 +293,12 @@ def _transform_radio_value_for_testname(testname: str | None) -> str:
 DEFAULT_TRANSFORM_VALUE = _transform_radio_value_for_testname(DEFAULT_TESTNAME)
 
 
-def _outlier_radio_value_for_testname(testname: str | None) -> str:
+def _outlier_radio_value_for_testname(testname_select_value: str | None) -> str:
+    testname, project_id = _parse_testname_select_value(testname_select_value)
     if not testname:
         return "std"
     cfg = effective_config(
-        project_id=_modal_project_id_for_testname(str(testname)),
+        project_id=project_id if project_id is not None else _modal_project_id_for_testname(str(testname)),
         testname=str(testname),
         global_cfg=_GLOBAL_CFG,
         project_cfgs=_PROJECT_CFGS,
@@ -516,15 +562,20 @@ def _group_config(group_col: str, dff: pd.DataFrame, selected_cohorts: list[str]
     Input("testname", "value"),
 )
 def update_biomarker_header(testname: str | None):
-    if not testname:
+    parsed_testname, parsed_project_id = _parse_testname_select_value(testname)
+    if not parsed_testname:
         return "", ""
 
-    project_id = _modal_project_id_for_testname(str(testname))
+    project_id = (
+        int(parsed_project_id)
+        if parsed_project_id is not None
+        else _modal_project_id_for_testname(str(parsed_testname))
+    )
 
     meta_children: list = []
     if project_id is None:
         meta_children = [html.Div("Project ID: (unknown)")]
-        return str(testname), meta_children
+        return str(parsed_testname), meta_children
 
     meta_children.append(html.Div(f"Project ID: {project_id}"))
     info = _cached_projects_lookup().get(project_id)
@@ -544,7 +595,7 @@ def update_biomarker_header(testname: str | None):
     # else:
     #     meta_children.append(html.Div("Run dates: (unknown)"))
 
-    return str(testname), meta_children
+    return str(parsed_testname), meta_children
 
 
 @memoize(timeout=6 * 60 * 60)
@@ -633,9 +684,10 @@ def load_analysis_subset_store(
     cohort_filter: list[str] | None,
     gba_filter_mode: str | None,
 ):
-    if not testname:
+    parsed_testname, _parsed_project_id = _parse_testname_select_value(testname)
+    if not parsed_testname:
         return None
-    dff = _filtered_df(str(testname), cohort_filter, gba_filter_mode)
+    dff = _filtered_df(str(parsed_testname), cohort_filter, gba_filter_mode)
     if dff.empty:
         return None
     with _timed("analysis.store.serialize", nrows=int(len(dff))):
@@ -923,17 +975,25 @@ def download_filtered_data(
     transform: str | None,
     outlier_handling: str | None,
 ):
-    if not testname:
+    parsed_testname, parsed_project_id = _parse_testname_select_value(testname)
+    if not parsed_testname:
         return None
 
     model_df, group_col, testvalue_col = _build_model_df(
-        testname, groupby, cohort_filter, gba_filter_mode, transform, outlier_handling
+        str(parsed_testname),
+        groupby,
+        cohort_filter,
+        gba_filter_mode,
+        transform,
+        outlier_handling,
     )
     if model_df.empty:
         return None
 
     cols = [
         "PATNO",
+        "CLINICAL_EVENT",
+        "AGE_AT_VISIT",
         "SEX",
         "COHORT",
         "HEURISTIC",
@@ -956,7 +1016,9 @@ def download_filtered_data(
             "string"
         )
 
-    safe_name = str(testname).replace("/", "-").replace("\\", "-")
+    safe_name = str(parsed_testname).replace("/", "-").replace("\\", "-")
+    if parsed_project_id is not None:
+        safe_name = f"{safe_name}_project-{int(parsed_project_id)}"
     filename = (
         f"{safe_name}__groupby-{group_col}__transform-{transform or 'none'}"
         f"__outliers-{outlier_handling or 'none'}.csv"
