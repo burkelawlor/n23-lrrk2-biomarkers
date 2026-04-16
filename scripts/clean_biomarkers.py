@@ -27,11 +27,12 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--projectid",
-        type=int,
+        type=str,
         default=None,
         help=(
-            "If provided, only run the cleaner for this PPMI PROJECTID "
-            "(e.g. --projectid 145 runs only clean_project_145)."
+            "If provided, only run the cleaner for this PPMI PROJECTID (e.g. 145) "
+            "or a special cleaner label (e.g. bulk). "
+            '(examples: "--projectid 145", "--projectid bulk").'
         ),
     )
     p.add_argument(
@@ -108,6 +109,29 @@ def _dedupe_biomarker_rows(df: pd.DataFrame) -> pd.DataFrame:
     )
     return dff
 
+
+def clean_project_bulk(biomarker_df: pd.DataFrame) -> pd.DataFrame:
+    def _is_float(val):
+        try:
+            float(val)
+            return True
+        except Exception:
+            return False
+    
+    # Subset to projects where >10% of values cannot be converted to floats
+    df = biomarker_df.copy()
+    df["can_float"] = df["TESTVALUE"].apply(_is_float)
+    agg_df = df.groupby("PROJECTID").agg(
+        num_entries=("TESTVALUE", "size"),
+        num_non_float=("can_float", lambda x: (~x).sum()),
+    )
+    agg_df["percent_non_float"] = agg_df["num_non_float"] / agg_df["num_entries"] * 100
+    projects_to_include = agg_df[agg_df["percent_non_float"] < 10].index
+    df = df[df.PROJECTID.isin(projects_to_include)].copy()
+    
+    # Replace all nonfloat with nan
+    df.loc[df["can_float"] == False, "TESTVALUE"] = np.nan
+    return df
 
 def clean_project_105(biomarker_df: pd.DataFrame) -> pd.DataFrame:
     df = biomarker_df.loc[biomarker_df["PROJECTID"] == 105].copy()
@@ -198,15 +222,19 @@ def main() -> None:
         ("114", clean_project_114),
         ("113", clean_project_113),
         ("221", clean_project_221),
+        ("bulk", clean_project_bulk),
     ]
 
     if args.projectid is not None:
         wanted = str(args.projectid)
         available = {label for label, _ in project_cleaners}
         if wanted not in available:
+            numeric = sorted([a for a in available if a.isdigit()], key=int)
+            non_numeric = sorted([a for a in available if not a.isdigit()])
+            formatted = ", ".join(numeric + non_numeric)
             raise SystemExit(
                 f"--projectid {args.projectid} is not supported by this script. "
-                f"Available: {', '.join(sorted(available, key=int))}"
+                f"Available: {formatted}"
             )
         project_cleaners = [(label, cleaner) for (label, cleaner) in project_cleaners if label == wanted]
 
@@ -228,7 +256,7 @@ def main() -> None:
         from utils.db_runtime import create_engine_from_url
 
         engine = create_engine_from_url(args.database_url)
-        if args.projectid is not None:
+        if args.projectid is not None and str(args.projectid) != "bulk":
             from utils.db_ingest import replace_project_analysis_mysql, upsert_project_metadata_mysql
 
             label = str(args.projectid)
@@ -236,7 +264,7 @@ def main() -> None:
             if df is None or df.empty:
                 print(f"Skipping DB upsert for project {label}: no rows after cleaning.")
             else:
-                replace_project_analysis_mysql(engine, project_id=int(args.projectid), analysis_df=df)
+                replace_project_analysis_mysql(engine, project_id=int(label), analysis_df=df)
 
                 projects_csv = Path(
                     args.output_projects_csv
@@ -245,7 +273,7 @@ def main() -> None:
                 if projects_csv.exists():
                     projects_df = pd.read_csv(projects_csv, low_memory=False)
                     upsert_project_metadata_mysql(
-                        engine, projects_df=projects_df, project_id=int(args.projectid)
+                        engine, projects_df=projects_df, project_id=int(label)
                     )
                 print(f"Upserted project {label} into MySQL.")
         else:
