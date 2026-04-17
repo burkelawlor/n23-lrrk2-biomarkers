@@ -6,7 +6,7 @@ import os
 import dash
 import dash_bootstrap_components as dbc
 import dash_ag_grid as dag
-from dash import html
+from dash import html, Input, Output, callback
 
 import numpy as np
 import pandas as pd
@@ -193,35 +193,123 @@ layout = dbc.Container(
     fluid=True,
     children=[
         dbc.Row(
-            [
-                dbc.Col(
+            dbc.Col(
+                html.Div(
                     [
-                        html.H2("Results Overview"),
-                        html.P(
+                        html.Div(
                             [
-                                "Interactive view of regression results for omnibus and RV vs Predicted pairwise tests. About the results:",                                
-
-                                html.Ul([
-                                    html.Li(["Two tests are performed for each biomarker: ", "omnibus", " and ", "RV vs Predicted pairwise", ". For each test, an n, p-value and q-value are shown."]),
-                                    html.Li(["The ", html.B("omnibus"), " value tests for the difference across all classifier cohorts (Non, RV, and Predicted). A low p-value indicates that there is a difference in at least one cohort."]),
-                                    html.Li(["The ", html.B("Non vs Predicted/RV pairwise"), " tests for the difference between the Non and Predicted or RV cohorts. A low p-value indicates that there is a difference Non and Predicted or Non and RV."]),
-                                    html.Li([html.B("beta_std"), " columns show effect size estimate in standard deviation units."]),
-                                    html.Li(["The ", html.B("q-values"), " represent the test-corrected p-values using FDR. Test corrections are necessary to control the inflated risk of false positives that occurs when conducting thousands of simultaneous statistical comparisons. Test corrections are applied by project, not for all tests overall."]),
-                                    html.Li([html.B("RV vs Predicted Concurrent"), " indicates whether the Predicted and RV groups trend in the same direction."]),
-                                ]),
-                                
-                           
-                                "Use the column filters and sorting to find biomarkers of interest.",
+                                html.H4(
+                                    "Results Overview",
+                                    style={"margin": "0", "fontWeight": "600", "color": "#343a40"},
+                                ),
+                                html.P(
+                                    "Interactive view of regression results for omnibus and pairwise (Non vs Predicted, Non vs RV) tests. "
+                                    "Use the column filters and sorting to find biomarkers of interest.",
+                                    style={
+                                        "margin": "6px 0 0 0",
+                                        "fontSize": "14px",
+                                        "color": "#6c757d",
+                                    },
+                                ),
+                                dbc.Button(
+                                    "Show / hide column descriptions",
+                                    id="results-desc-toggle",
+                                    color="link",
+                                    size="sm",
+                                    style={
+                                        "padding": "0",
+                                        "marginTop": "6px",
+                                        "fontSize": "13px",
+                                        "textDecoration": "none",
+                                        "color": "#0d6efd",
+                                    },
+                                ),
                             ]
                         ),
+                        dbc.Collapse(
+                            html.Div(
+                                html.Ul(
+                                    [
+                                        html.Li(
+                                            [
+                                                "Two tests are performed for each biomarker: ",
+                                                html.B("omnibus"),
+                                                " and ",
+                                                html.B("RV vs Predicted pairwise"),
+                                                ". For each test, an n, p-value, and q-value are shown.",
+                                            ]
+                                        ),
+                                        html.Li(
+                                            [
+                                                "The ",
+                                                html.B("omnibus"),
+                                                " test checks for a difference across all classifier cohorts (Non, RV, and Predicted). "
+                                                "A low p-value indicates a difference in at least one cohort.",
+                                            ]
+                                        ),
+                                        html.Li(
+                                            [
+                                                "The ",
+                                                html.B("Non vs Predicted/RV pairwise"),
+                                                " test checks for a difference between the Non and Predicted or Non and RV cohorts.",
+                                            ]
+                                        ),
+                                        html.Li(
+                                            [html.B("beta_std"), " columns show effect size estimate in standard deviation units."]
+                                        ),
+                                        html.Li(
+                                            [
+                                                html.B("q-values"),
+                                                " are FDR-corrected p-values (Benjamini-Hochberg), applied per project to control false positives "
+                                                "across thousands of simultaneous comparisons.",
+                                            ]
+                                        ),
+                                        html.Li(
+                                            [
+                                                html.B("RV vs Predicted Concurrent"),
+                                                " indicates whether the Predicted and RV groups trend in the same direction.",
+                                            ]
+                                        ),
+                                    ],
+                                    style={"marginBottom": "0", "paddingLeft": "20px", "fontSize": "13px"},
+                                ),
+                                style={"paddingTop": "10px"},
+                            ),
+                            id="results-desc-collapse",
+                            is_open=False,
+                        ),
                     ],
-                    lg=10,
-                )
-            ],
-            style={"marginBottom": "10px"},
+                    style={
+                        "backgroundColor": "#f8f9fa",
+                        "border": "1px solid #e9ecef",
+                        "borderRadius": "6px",
+                        "padding": "16px 20px",
+                    },
+                ),
+                lg=12,
+            ),
+            style={"marginBottom": "14px"},
         ),
-        dbc.Row([dbc.Col(_build_table(_df), lg=12)]),
+        dbc.Row(
+            dbc.Col(
+                html.Div(
+                    _build_table(_df),
+                    style={"padding": "0"},
+                ),
+                lg=12,
+            )
+        ),
         html.Div(style={"height": "50px"}),
     ],
 )
 
+
+@callback(
+    Output("results-desc-collapse", "is_open"),
+    Input("results-desc-toggle", "n_clicks"),
+    prevent_initial_call=True,
+)
+def _toggle_desc(n_clicks):
+    # Each click flips the state; derive from click parity so it always works
+    # even if the callback fires multiple times.
+    return (n_clicks or 0) % 2 == 1
