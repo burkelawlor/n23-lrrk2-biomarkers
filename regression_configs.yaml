@@ -13,3 +13,5 @@ testnames:
     outlier_handling: std
   "GRN_4992-49_1":
     outlier_handling: std
+  "ITGB2_12750-9_3":
+    outlier_handling: std
