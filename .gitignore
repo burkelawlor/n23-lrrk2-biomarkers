@@ -12,6 +12,8 @@
 data/*
 # output/*
 notebooks/*
+~$*.xlsx
 
+CLAUDE.md
 
 
