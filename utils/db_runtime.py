@@ -108,6 +108,7 @@ def fetch_analysis_subset(
         "PATNO",
         "PROJECTID",
         "AGE_AT_VISIT",
+        "CLINICAL_EVENT",
     ]
     select_cols = ", ".join([c for c in cols])
 

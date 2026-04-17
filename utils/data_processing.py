@@ -11,6 +11,7 @@ import pandas as pd
 
 # Long-form biospecimen + ML flags. PI fields live in cleaned_biospecimen_projects.csv.
 _CANONICAL_CLEANED_BIOSPECIMEN_COLUMNS: tuple[str, ...] = (
+    "PROJECTID",
     "PATNO",
     "SEX",
     "AGE_AT_VISIT",
@@ -21,7 +22,6 @@ _CANONICAL_CLEANED_BIOSPECIMEN_COLUMNS: tuple[str, ...] = (
     "TESTVALUE",
     "UNITS",
     "RUNDATE",
-    "PROJECTID",
     # "update_stamp",
     "RV",
     "GBA",
@@ -33,8 +33,8 @@ _CANONICAL_CLEANED_BIOSPECIMEN_COLUMNS: tuple[str, ...] = (
 _PROJECT_METADATA_COLUMNS: tuple[str, ...] = ("PROJECTID", "PI_NAME", "PI_INSTITUTION")
 
 _DEFAULT_DEDUPE_SUBSET: tuple[str, ...] = (
-    "PATNO",
     "PROJECTID",
+    "PATNO",
     "TESTNAME",
     "CLINICAL_EVENT",
     "TYPE",

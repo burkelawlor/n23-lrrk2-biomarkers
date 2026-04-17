@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 
 import dash
 import dash_bootstrap_components as dbc
-import pandas as pd
 import dash_ag_grid as dag
 from dash import html
 
+import numpy as np
+import pandas as pd
 
 dash.register_page(
     __name__,
@@ -50,6 +52,12 @@ def _load_df() -> pd.DataFrame:
                 "non_vs_predicted_pval",
                 "non_vs_predicted_qval_fdr_bh",
                 "n_non_vs_predicted",
+                "beta_std_non_vs_predicted",
+                "n_non_vs_rv",
+                "beta_std_non_vs_rv",
+                "pval_non_vs_rv",
+                "qval_non_vs_rv",
+                "rv_predicted_concurrent",
                 "gba_included",
                 "log_transform",
                 "pd_only",
@@ -63,19 +71,41 @@ def _load_df() -> pd.DataFrame:
 
     pairwise_df = pd.read_csv(_PAIRWISE_PATH)
     pairwise_non_vs_pred = pairwise_df.loc[pairwise_df["comparison"] == "Non vs Predicted"].copy()
+    pairwise_non_vs_rv = pairwise_df.loc[pairwise_df["comparison"] == "Non vs RV"].copy()
 
     merge_keys = ["PROJECTID", "TESTNAME", "gba_included", "log_transform", "pd_only"]
     pairwise_non_vs_pred = pairwise_non_vs_pred[
-        merge_keys + ["pval", "qval_fdr_bh", "n"]
+        merge_keys + ["pval", "qval_fdr_bh", "n", "effect_size_std"]
     ].rename(
         columns={
             "pval": "non_vs_predicted_pval",
             "qval_fdr_bh": "non_vs_predicted_qval_fdr_bh",
             "n": "n_non_vs_predicted",
+            "effect_size_std": "beta_std_non_vs_predicted",
         }
     )
 
-    merged = omnibus_df.merge(pairwise_non_vs_pred, on=merge_keys, how="left")
+    pairwise_non_vs_rv = pairwise_non_vs_rv[
+        merge_keys + ["pval", "qval_fdr_bh", "n", "effect_size_std"]
+    ].rename(
+        columns={
+            "n": "n_non_vs_rv",
+            "pval": "pval_non_vs_rv",
+            "qval_fdr_bh": "qval_non_vs_rv",
+            "effect_size_std": "beta_std_non_vs_rv",
+        }
+    )
+
+    merged = omnibus_df.merge(pairwise_non_vs_pred, on=merge_keys, how="left").merge(
+        pairwise_non_vs_rv, on=merge_keys, how="left"
+    )
+
+    has_both_betas = merged["beta_std_non_vs_predicted"].notna() & merged["beta_std_non_vs_rv"].notna()
+    merged["rv_predicted_concurrent"] = None
+    merged.loc[has_both_betas, "rv_predicted_concurrent"] = (
+        np.sign(merged.loc[has_both_betas, "beta_std_non_vs_predicted"])
+        == np.sign(merged.loc[has_both_betas, "beta_std_non_vs_rv"])
+    ).map({True: "Yes", False: "No"})
     return merged
 
 
@@ -83,9 +113,11 @@ def _build_table(df: pd.DataFrame):
     display_df = df.copy()
 
     sciFormatter = {"function": "d3.format('.4')(params.value)"}
+    betaFormatter = {"function": "d3.format('.3f')(params.value)"}
 
     int_kwgs = {"type": "numericColumn", "filter": "agNumberColumnFilter", "align": "left"}
     float_kwgs = {"type": "numericColumn", "filter": "agNumberColumnFilter", "valueFormatter": sciFormatter}
+    beta_kwgs = {"type": "numericColumn", "filter": "agNumberColumnFilter", "valueFormatter": betaFormatter}
 
     column_defs = [
         {"field": "PROJECTID", "headerName": "PROJECTID", "flex": 1, "minWidth": 110},
@@ -94,14 +126,14 @@ def _build_table(df: pd.DataFrame):
         {"field": "omnibus_pval", "headerName": "pval_omnibus", "flex": 1, "minWidth": 160, **float_kwgs},
         {"field": "omnibus_qval_fdr_bh", "headerName": "qval_omnibus", "flex": 1, "minWidth": 170, **float_kwgs},
         {"field": "n_non_vs_predicted", "headerName": "n_non_vs_predicted", "flex": 1, "minWidth": 190, **int_kwgs},
+        {"field": "beta_std_non_vs_predicted","headerName": "beta_std_non_vs_predicted", "flex": 1, "minWidth": 230, **beta_kwgs,},
         {"field": "non_vs_predicted_pval", "headerName": "pval_non_vs_predicted", "flex": 1, "minWidth": 210, **float_kwgs},
-        {
-            "field": "non_vs_predicted_qval_fdr_bh",
-            "headerName": "qval_non_vs_predicted",
-            "flex": 1,
-            "minWidth": 220,
-            **float_kwgs,
-        },
+        {"field": "non_vs_predicted_qval_fdr_bh","headerName": "qval_non_vs_predicted", "flex": 1,"minWidth": 220,**float_kwgs,},
+        {"field": "n_non_vs_rv", "headerName": "n_non_vs_rv", "flex": 1, "minWidth": 150, **int_kwgs},
+        {"field": "beta_std_non_vs_rv", "headerName": "beta_std_non_vs_rv", "flex": 1, "minWidth": 170, **beta_kwgs},
+        {"field": "pval_non_vs_rv", "headerName": "pval_non_vs_rv", "flex": 1, "minWidth": 150, **float_kwgs},
+        {"field": "qval_non_vs_rv", "headerName": "qval_non_vs_rv", "flex": 1, "minWidth": 150, **float_kwgs},
+        {"field": "rv_predicted_concurrent", "headerName": "rv_predicted_concurrent", "flex": 1, "minWidth": 210, "filter": "agSetColumnFilter"},
         # {"field": "cohort_col", "headerName": "Cohort"},
         # {"field": "gba_included", "filter": "agSetColumnFilter"},
         # {"field": "log_transform", "filter": "agSetColumnFilter"},
@@ -111,6 +143,8 @@ def _build_table(df: pd.DataFrame):
     grid = dag.AgGrid(
         id="omnibus-grid",
         className="ag-theme-alpine",
+        enableEnterpriseModules=True,
+        licenseKey=os.getenv("AG_GRID_LICENSE_KEY"),
         columnSize="sizeToFit",
         columnDefs=column_defs,
         rowData=display_df.where(pd.notna(display_df), None).to_dict("records"),
@@ -134,6 +168,7 @@ def _build_table(df: pd.DataFrame):
             "pagination": True,
             "paginationPageSize": 100,
             "suppressRowClickSelection": True,
+            "sideBar": True,
             "getRowStyle": {
                 "styleConditions": [
                     {
@@ -169,8 +204,10 @@ layout = dbc.Container(
                                 html.Ul([
                                     html.Li(["Two tests are performed for each biomarker: ", "omnibus", " and ", "RV vs Predicted pairwise", ". For each test, an n, p-value and q-value are shown."]),
                                     html.Li(["The ", html.B("omnibus"), " value tests for the difference across all classifier cohorts (Non, RV, and Predicted). A low p-value indicates that there is a difference in at least one cohort."]),
-                                    html.Li(["The ", html.B("RV vs Predicted pairwise"), " tests for the difference between the RV and Predicted cohorts. A low p-value indicates that there is a difference between the RV and Predicted cohorts."]),
+                                    html.Li(["The ", html.B("Non vs Predicted/RV pairwise"), " tests for the difference between the Non and Predicted or RV cohorts. A low p-value indicates that there is a difference Non and Predicted or Non and RV."]),
+                                    html.Li([html.B("beta_std"), " columns show effect size estimate in standard deviation units."]),
                                     html.Li(["The ", html.B("q-values"), " represent the test-corrected p-values using FDR. Test corrections are necessary to control the inflated risk of false positives that occurs when conducting thousands of simultaneous statistical comparisons. Test corrections are applied by project, not for all tests overall."]),
+                                    html.Li([html.B("RV vs Predicted Concurrent"), " indicates whether the Predicted and RV groups trend in the same direction."]),
                                 ]),
                                 
                            
@@ -184,7 +221,7 @@ layout = dbc.Container(
             style={"marginBottom": "10px"},
         ),
         dbc.Row([dbc.Col(_build_table(_df), lg=12)]),
-        html.Div(style={"height": "18px"}),
+        html.Div(style={"height": "50px"}),
     ],
 )
 

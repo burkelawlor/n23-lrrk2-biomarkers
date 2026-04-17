@@ -8,6 +8,8 @@ from dash import Dash, dcc, html
 
 from utils.cache_runtime import init_cache
 
+import dash_mantine_components as dmc
+
 try:
     load_dotenv(".env")
 except Exception:
@@ -50,19 +52,28 @@ app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], use_pages=True
 app.title = "Biomarker Dashboard"
 init_cache(app.server)
 
+_page_content = dbc.Container(
+    fluid=True,
+    style={"flex": "1 1 auto", "display": "flex", "flexDirection": "column"},
+    children=[
+        _header(app),
+        html.Div(
+            dash.page_container,
+            style={"flex": "1 1 auto", "paddingTop": "12px"},
+        ),
+    ],
+)
+
 app.layout = html.Div(
     style={"minHeight": "100vh", "display": "flex", "flexDirection": "column"},
     children=[
-        dbc.Container(
-            fluid=True,
-            style={"flex": "1 1 auto", "display": "flex", "flexDirection": "column"},
-            children=[
-                _header(app),
-                html.Div(
-                    dash.page_container,
-                    style={"flex": "1 1 auto", "paddingTop": "12px"},
-                ),
-            ],
+        (
+            dmc.MantineProvider(
+                children=[_page_content],
+                theme={"primaryColor": "blue"},
+            )
+            if dmc is not None
+            else _page_content
         )
     ],
 )
