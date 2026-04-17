@@ -14,5 +14,5 @@ Flask-Caching>=2.1
 sqlalchemy>=2.0
 mysqlclient>=2.2
 pymysql>=1.1
-paramiko>=3.5.1
+paramiko==3.5.1
 sshtunnel>=0.4.0
