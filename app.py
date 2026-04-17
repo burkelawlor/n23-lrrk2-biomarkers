@@ -21,30 +21,55 @@ def _header(app: Dash):
         "color": "#1a1a1a",
         "textDecoration": "none",
         "fontWeight": 600,
-        "marginLeft": "14px",
+        "padding": "6px 10px",
+        "borderRadius": "4px",
     }
     return dbc.Row(
         children=[
             dbc.Col(
                 html.Img(
                     src=app.get_asset_url("Neuron23_Logo.png"),
-                    style={"maxWidth": "130px", "height": "auto", "margin": "8px 8px"},
+                    style={"maxWidth": "130px", "height": "auto", "margin": "10px 16px"},
                 ),
                 width="auto",
+                style={"borderRight": "1px solid #e0e0e0"},
             ),
             dbc.Col(
                 html.Div(
                     [
-                        dcc.Link("Home", href="/", style=link_style),
-                        dcc.Link("Results Overview", href="/results", style=link_style),
-                        dcc.Link("Biomarker Analysis", href="/analysis", style=link_style),
+                        html.Span(
+                            dcc.Link("Home", href="/", style=link_style),
+                            className="nav-link-wrapper",
+                        ),
+                        html.Span(
+                            dcc.Link("Results Overview", href="/results", style=link_style),
+                            className="nav-link-wrapper",
+                        ),
+                        html.Span(
+                            dcc.Link("Biomarker Analysis", href="/analysis", style=link_style),
+                            className="nav-link-wrapper",
+                        ),
                     ],
-                    style={"display": "flex", "alignItems": "center", "height": "100%"},
+                    style={"display": "flex", "alignItems": "center", "height": "100%", "paddingLeft": "8px"},
                 )
+            ),
+            dbc.Col(
+                html.Span(
+                    "PPMI LRRK2",
+                    style={"color": "#888", "fontSize": "12px", "fontStyle": "italic"},
+                ),
+                className="ms-auto",
+                width="auto",
+                style={"display": "flex", "alignItems": "center", "paddingRight": "8px"},
             ),
         ],
         align="center",
-        style={"backgroundColor": "#f2f2f2", "padding": "6px 0"},
+        style={
+            "backgroundColor": "#ffffff",
+            "padding": "8px 16px",
+            "borderBottom": "1px solid #e0e0e0",
+            "boxShadow": "0 1px 4px rgba(0,0,0,0.08)",
+        },
     )
 
 

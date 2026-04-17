@@ -311,31 +311,42 @@ DEFAULT_OUTLIER_VALUE = _outlier_radio_value_for_testname(DEFAULT_TESTNAME)
 
 
 def description_card():
-    return dbc.Card(
+    return html.Div(
         id="description-card",
         children=[
-            dbc.CardBody(
-                [
-                    html.H4("Welcome to the Neuron23 LRRK2 Biomarker Dashboard"),
-                    html.Div(
-                        id="intro",
-                        children=(
-                            "Explore biomarker distributions by cohort. Click on the dropdown to select a biomarker."
-                        ),
-                        style={"marginTop": "8px"},
-                    ),
-                ]
+            html.Div(
+                "Select a biomarker from the dropdown to explore distributions and run statistical comparisons.",
+                style={"color": "#6c757d", "fontSize": "13px"},
             )
         ],
     )
 
 
 def generate_control_card():
-    biomarker_control_card = dbc.Card(
+    _section_label_style = {
+        "fontSize": "10px",
+        "fontWeight": "700",
+        "letterSpacing": "0.08em",
+        "color": "#6c757d",
+        "marginBottom": "6px",
+        "textTransform": "uppercase",
+    }
+    _section_divider = html.Hr(style={"margin": "14px 0", "borderColor": "#dee2e6"})
+
+    return html.Div(
+        id="control-cards",
+        style={
+            "backgroundColor": "#f8f9fa",
+            "borderRadius": "8px",
+            "border": "1px solid #e9ecef",
+            "padding": "16px",
+        },
         children=[
-            dbc.CardBody(
-                [
-                    html.H5("Select Biomarker", className="card-title"),
+            # Biomarker select
+            html.Div(
+                style={"marginBottom": "10px"},
+                children=[
+                    html.Div("BIOMARKER", style=_section_label_style),
                     (
                         dmc.Select(
                             id="testname",
@@ -356,17 +367,14 @@ def generate_control_card():
                             placeholder="No biomarkers found in TESTNAME",
                         )
                     ),
-                ]
-            )
-        ],
-    )
-
-    cohort_control_card = dbc.Card(
-        children=[
-            dbc.CardBody(
-                [
-                    html.H5("Select cohorts", className="card-title"),
-                    html.P("Compare groups by", className="card-title"),
+                ],
+            ),
+            _section_divider,
+            # Compare groups by
+            html.Div(
+                style={"marginBottom": "10px"},
+                children=[
+                    html.Div("COMPARE GROUPS BY", style=_section_label_style),
                     dbc.RadioItems(
                         id="groupby",
                         options=[
@@ -376,16 +384,28 @@ def generate_control_card():
                         value="HEURISTIC",
                         inline=False,
                     ),
-                    html.Hr(),
-                    html.P("Cohorts to include", className="card-title"),
+                ],
+            ),
+            _section_divider,
+            # Cohorts to include
+            html.Div(
+                style={"marginBottom": "10px"},
+                children=[
+                    html.Div("COHORTS TO INCLUDE", style=_section_label_style),
                     dbc.Checklist(
                         id="cohort_filter",
                         options=[{"label": c, "value": c} for c in COHORT_VALUES],
                         value=COHORT_VALUES,
                         inline=False,
                     ),
-                    html.Hr(),
-                    html.P("GBA carriers", className="card-title"),
+                ],
+            ),
+            _section_divider,
+            # GBA carriers
+            html.Div(
+                style={"marginBottom": "10px"},
+                children=[
+                    html.Div("GBA CARRIERS", style=_section_label_style),
                     dbc.RadioItems(
                         id="gba_filter_mode",
                         options=[
@@ -395,17 +415,14 @@ def generate_control_card():
                         value="included",
                         inline=False,
                     ),
-                ]
-            )
-        ],
-    )
-
-    data_control_card = dbc.Card(
-        children=[
-            dbc.CardBody(
-                [
-                    html.H5("Adjust data", className="card-title"),
-                    html.P("Data transformation", className="card-title"),
+                ],
+            ),
+            _section_divider,
+            # Data transformation
+            html.Div(
+                style={"marginBottom": "10px"},
+                children=[
+                    html.Div("DATA TRANSFORMATION", style=_section_label_style),
                     dbc.RadioItems(
                         id="transform",
                         options=[
@@ -415,7 +432,14 @@ def generate_control_card():
                         value=DEFAULT_TRANSFORM_VALUE,
                         inline=True,
                     ),
-                    html.P("Outlier removal", className="card-title", style={"marginTop": "12px"}),
+                ],
+            ),
+            _section_divider,
+            # Outlier removal
+            html.Div(
+                style={"marginBottom": "10px"},
+                children=[
+                    html.Div("OUTLIER REMOVAL", style=_section_label_style),
                     dbc.RadioItems(
                         id="outlier_removal",
                         options=[
@@ -426,19 +450,8 @@ def generate_control_card():
                         value=DEFAULT_OUTLIER_VALUE,
                         inline=True,
                     ),
-                ]
-            )
-        ],
-    )
-
-    return html.Div(
-        id="control-cards",
-        children=[
-            biomarker_control_card,
-            html.Div(style={"height": "12px"}),
-            cohort_control_card,
-            html.Div(style={"height": "12px"}),
-            data_control_card,
+                ],
+            ),
         ],
     )
 
@@ -624,8 +637,9 @@ layout = html.Div(
                     ],
                     width=3,
                     style={
-                        "backgroundColor": "#FFFFFF",
-                        "padding": "8px 8px",
+                        "backgroundColor": "#f8f9fa",
+                        "borderRight": "1px solid #e9ecef",
+                        "padding": "16px 12px",
                         "height": "100%",
                     },
                 ),
@@ -634,10 +648,24 @@ layout = html.Div(
                         dcc.Store(id="analysis-store"),
                         html.Div(
                             [
-                                html.H3(id="biomarker-title", style={"margin": "0"}),
+                                html.H3(
+                                    id="biomarker-title",
+                                    style={
+                                        "margin": "0",
+                                        "fontSize": "22px",
+                                        "fontWeight": "600",
+                                        "color": "#1a1a1a",
+                                    },
+                                ),
                                 html.Div(
                                     id="biomarker-meta",
-                                    style={"marginTop": "6px", "color": "#444"},
+                                    style={
+                                        "marginTop": "6px",
+                                        "fontSize": "12px",
+                                        "color": "#6c757d",
+                                        "display": "flex",
+                                        "gap": "16px",
+                                    },
                                 ),
                             ],
                             style={"marginBottom": "10px"},
@@ -649,15 +677,25 @@ layout = html.Div(
                             ],
                             align="start",
                         ),
-                        html.Div(id="stats-results", style={"marginTop": "14px"}),
+                        html.Div(
+                            id="stats-results",
+                            style={
+                                "marginTop": "14px",
+                                "backgroundColor": "#fafafa",
+                                "borderRadius": "6px",
+                                "border": "1px solid #f0f0f0",
+                                "padding": "16px",
+                            },
+                        ),
                         html.Div(
                             [
                                 html.Div(style={"height": "24px"}),
                                 dbc.Button(
                                     "Download data as a CSV",
                                     id="download-data-btn",
-                                    color="primary",
+                                    color="secondary",
                                     size="sm",
+                                    className="mt-2",
                                 ),
                                 dcc.Download(id="download-data"),
                             ]
