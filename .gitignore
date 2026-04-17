@@ -15,5 +15,6 @@ notebooks/*
 ~$*.xlsx
 
 CLAUDE.md
+.claude/
 
 
