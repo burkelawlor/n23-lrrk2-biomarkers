@@ -26,13 +26,12 @@ def _parse_args() -> argparse.Namespace:
         )
     )
     p.add_argument(
-        "--projectid",
+        "--cleaner",
         type=str,
         default=None,
         help=(
-            "If provided, only run the cleaner for this PPMI PROJECTID (e.g. 145) "
-            "or a special cleaner label (e.g. bulk). "
-            '(examples: "--projectid 145", "--projectid bulk").'
+            "If provided, only run this cleaner label. "
+            '(examples: "--cleaner bulk-ppmi", "--cleaner ppmi-151").'
         ),
     )
     p.add_argument(
@@ -168,18 +167,49 @@ def clean_ppmi_151(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
     # project_151 = project_151.loc[project_151["TESTNAME"].astype(str).isin(curated)].copy()
     return project_151
 
-def clean_lcc_bulk() -> pd.DataFrame:
+def clean_lcc_bulk(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
+    lcc_path = data_dir / "LCC_Biomarkers_compiled_080122.csv"
+    df = pd.read_csv(lcc_path, low_memory=False)
 
-    return
+    # Build LCC-specific ml_df slice (LC- prefix IDs)
+    ml_lcc = ml_df[ml_df.ID.str.startswith("LC-")].copy()
+    ml_lcc["lrrkid"] = ml_lcc.ID.str.replace("LC-", "", regex=False)
+
+    # Merge ml scores onto LCC data via lrrkid
+    df = df.merge(ml_lcc[["lrrkid", "RV", "GBA", "PREDICTED", "DRIVEN", "HEURISTIC"]], on="lrrkid", how="left")
+
+    # Subset to projects where <10% of values cannot be converted to floats
+    df["can_float"] = df["TESTVALUE"].apply(_is_float)
+    agg_df = df.groupby("Biomarker_projectID").agg(
+        num_entries=("TESTVALUE", "size"),
+        num_non_float=("can_float", lambda x: (~x).sum()),
+    )
+    agg_df["percent_non_float"] = agg_df["num_non_float"] / agg_df["num_entries"] * 100
+    projects_to_include = agg_df[agg_df["percent_non_float"] < 10].index
+    df = df[df["Biomarker_projectID"].isin(projects_to_include)].copy()
+
+    # Replace non-float values with NaN
+    df.loc[df["can_float"] == False, "TESTVALUE"] = np.nan
+
+    # Map to canonical columns
+    df["PROJECTID"] = "LCC " + df["Biomarker_projectID"].astype(str)
+    df["PATNO"] = df["lrrkid"].astype(str)
+    df["SEX"] = df["gender"].map({1.0: "Male", 2.0: "Female"})
+    df["AGE_AT_VISIT"] = df["demopd_ageassess"]
+    df["COHORT"] = df["pdenrl"].map({0.0: "Control", 1.0: "PD"})
+    df.rename(columns={"EVENT": "CLINICAL_EVENT", "Biomarker_sampletype": "TYPE"}, inplace=True)
+
+    # Truncate TESTNAME to match the DB VARCHAR(255) column limit
+    df["TESTNAME"] = df["TESTNAME"].astype(str).str[:255]
+
+    return df
 
 
 def main() -> None:
     args = _parse_args()
     data_dir = (_REPO_ROOT / args.data_dir).resolve()
 
-    if args.projectid is not None:
-        print(f"Running cleaner {args.projectid}...")
-    else:
+    if args.cleaner is None:
         print("Running all cleaners...")
 
     ml_df = _build_ml_df(data_dir)
@@ -193,17 +223,16 @@ def main() -> None:
     project_cleaners: list[tuple[str, Callable[..., pd.DataFrame]]] = [
         ("bulk-ppmi", clean_ppmi_bulk),
         ("ppmi-151", clean_ppmi_151),
+        ("bulk-lcc", clean_lcc_bulk),
     ]
 
-    if args.projectid is not None:
-        wanted = str(args.projectid)
+    if args.cleaner is not None:
+        wanted = str(args.cleaner)
         available = {label for label, _ in project_cleaners}
         if wanted not in available:
-            numeric = sorted([a for a in available if a.isdigit()], key=int)
-            non_numeric = sorted([a for a in available if not a.isdigit()])
-            formatted = ", ".join(numeric + non_numeric)
+            formatted = ", ".join(sorted(available))
             raise SystemExit(
-                f"--projectid {args.projectid} is not supported by this script. "
+                f"--cleaner {args.cleaner!r} is not supported by this script. "
                 f"Available: {formatted}"
             )
         project_cleaners = [(label, cleaner) for (label, cleaner) in project_cleaners if label == wanted]
@@ -224,10 +253,10 @@ def main() -> None:
         from utils.db_runtime import create_engine_from_url
 
         engine = create_engine_from_url(args.database_url)
-        if args.projectid is not None and str(args.projectid) != "bulk-ppmi":
+        if args.cleaner is not None and str(args.cleaner) != "bulk-ppmi":
             from utils.db_ingest import replace_project_analysis_mysql, upsert_project_metadata_mysql
 
-            label = str(args.projectid)
+            label = str(args.cleaner)
             df = cleaned_by_project.get(label)
             if df is None or df.empty:
                 print(f"Skipping DB upsert for project {label}: no rows after cleaning.")
