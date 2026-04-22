@@ -571,7 +571,7 @@ def update_biomarker_header(testname: str | None):
         return "", ""
 
     project_id = (
-        int(parsed_project_id)
+        parsed_project_id
         if parsed_project_id is not None
         else _modal_project_id_for_testname(str(parsed_testname))
     )
