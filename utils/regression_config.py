@@ -73,17 +73,14 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
-def _coerce_projectids_map(obj: Any) -> dict[int, dict[str, Any]]:
+def _coerce_projectids_map(obj: Any) -> dict[str, dict[str, Any]]:
     if obj is None:
         return {}
     if not isinstance(obj, dict):
         raise ValueError(f"projectids must be a mapping, got {type(obj).__name__}")
-    out: dict[int, dict[str, Any]] = {}
+    out: dict[str, dict[str, Any]] = {}
     for k, v in obj.items():
-        try:
-            pid = int(k)
-        except Exception as exc:
-            raise ValueError(f"projectids key {k!r} is not coercible to int") from exc
+        pid = str(k)
         if v is None:
             out[pid] = {}
             continue
@@ -110,7 +107,7 @@ def _coerce_testnames_map(obj: Any) -> dict[str, dict[str, Any]]:
     return out
 
 
-def load_regression_configs(path: Path) -> tuple[RegressionConfig, dict[int, RegressionConfig], dict[str, RegressionConfig]]:
+def load_regression_configs(path: Path) -> tuple[RegressionConfig, dict[str, RegressionConfig], dict[str, RegressionConfig]]:
     data = _load_yaml(path)
 
     allowed_top = {"global", "projectids", "testnames"}
@@ -122,7 +119,7 @@ def load_regression_configs(path: Path) -> tuple[RegressionConfig, dict[int, Reg
     projectids_raw = _coerce_projectids_map(data.get("projectids"))
     testnames_raw = _coerce_testnames_map(data.get("testnames"))
 
-    project_cfgs: dict[int, RegressionConfig] = {}
+    project_cfgs: dict[str, RegressionConfig] = {}
     for pid, cfg_obj in projectids_raw.items():
         merged = {
             "gba_included": global_cfg.gba_included,
@@ -149,10 +146,10 @@ def load_regression_configs(path: Path) -> tuple[RegressionConfig, dict[int, Reg
 
 def effective_config(
     *,
-    project_id: int | None,
+    project_id: str | None,
     testname: str,
     global_cfg: RegressionConfig,
-    project_cfgs: dict[int, RegressionConfig],
+    project_cfgs: dict[str, RegressionConfig],
     test_cfgs: dict[str, RegressionConfig],
 ) -> RegressionConfig:
     if testname in test_cfgs:

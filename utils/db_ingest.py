@@ -19,7 +19,7 @@ def init_schema(engine: Engine) -> None:
         # projects
         """
         CREATE TABLE IF NOT EXISTS projects (
-            PROJECTID INT NOT NULL,
+            PROJECTID VARCHAR(64) NOT NULL,
             PI_NAME TEXT NULL,
             PI_INSTITUTION TEXT NULL,
             PRIMARY KEY (PROJECTID)
@@ -38,7 +38,7 @@ def init_schema(engine: Engine) -> None:
             TESTVALUE DOUBLE NULL,
             UNITS VARCHAR(64) NULL,
             RUNDATE DATE NULL,
-            PROJECTID INT NULL,
+            PROJECTID VARCHAR(64) NULL,
             RV DOUBLE NULL,
             GBA DOUBLE NULL,
             PREDICTED DOUBLE NULL,
@@ -76,11 +76,10 @@ def upsert_projects_mysql(engine: Engine, projects_df: pd.DataFrame) -> None:
         raise ValueError("projects upsert requires a PROJECTID column.")
 
     dfc = projects_df.copy()
-    dfc["PROJECTID"] = pd.to_numeric(dfc["PROJECTID"], errors="coerce")
     dfc = dfc.dropna(subset=["PROJECTID"])
     if dfc.empty:
         return
-    dfc["PROJECTID"] = dfc["PROJECTID"].astype(int)
+    dfc["PROJECTID"] = dfc["PROJECTID"].astype(str)
 
     rows = _to_records(dfc, columns=["PROJECTID", "PI_NAME", "PI_INSTITUTION"])
     if not rows:
@@ -110,12 +109,11 @@ def insert_analysis_ignore_duplicates_mysql(engine: Engine, analysis_df: pd.Data
 
     dfc = analysis_df.copy()
     dfc["PATNO"] = pd.to_numeric(dfc["PATNO"], errors="coerce")
-    dfc["PROJECTID"] = pd.to_numeric(dfc["PROJECTID"], errors="coerce")
     dfc = dfc.dropna(subset=["PATNO", "PROJECTID", "TESTNAME", "CLINICAL_EVENT", "TYPE", "RUNDATE"])
     if dfc.empty:
         return
     dfc["PATNO"] = dfc["PATNO"].astype(int)
-    dfc["PROJECTID"] = dfc["PROJECTID"].astype(int)
+    dfc["PROJECTID"] = dfc["PROJECTID"].astype(str)
 
     # MySQL schema stores RUNDATE as DATE.
     dfc["RUNDATE"] = pd.to_datetime(dfc["RUNDATE"], errors="coerce").dt.date
@@ -161,24 +159,23 @@ def insert_analysis_ignore_duplicates_mysql(engine: Engine, analysis_df: pd.Data
         conn.execute(insert_sql, rows)
 
 
-def upsert_project_metadata_mysql(engine: Engine, *, projects_df: pd.DataFrame, project_id: int) -> None:
+def upsert_project_metadata_mysql(engine: Engine, *, projects_df: pd.DataFrame, project_id: str) -> None:
     if projects_df.empty:
         return
     if "PROJECTID" not in projects_df.columns:
         return
     dfc = projects_df.copy()
-    dfc["PROJECTID"] = pd.to_numeric(dfc["PROJECTID"], errors="coerce")
     dfc = dfc.dropna(subset=["PROJECTID"])
     if dfc.empty:
         return
-    dfc["PROJECTID"] = dfc["PROJECTID"].astype(int)
-    dfc = dfc.loc[dfc["PROJECTID"] == int(project_id)].copy()
+    dfc["PROJECTID"] = dfc["PROJECTID"].astype(str)
+    dfc = dfc.loc[dfc["PROJECTID"] == project_id].copy()
     if dfc.empty:
         return
     upsert_projects_mysql(engine, dfc)
 
 
-def replace_project_analysis_mysql(engine: Engine, *, project_id: int, analysis_df: pd.DataFrame) -> None:
+def replace_project_analysis_mysql(engine: Engine, *, project_id: str, analysis_df: pd.DataFrame) -> None:
     """
     Replace all `analysis` rows for a single PROJECTID.
 
@@ -191,12 +188,11 @@ def replace_project_analysis_mysql(engine: Engine, *, project_id: int, analysis_
         raise ValueError("analysis replace requires a PROJECTID column.")
 
     dfc = analysis_df.copy()
-    dfc["PROJECTID"] = pd.to_numeric(dfc["PROJECTID"], errors="coerce")
     dfc = dfc.dropna(subset=["PROJECTID"])
     if dfc.empty:
         return
-    dfc["PROJECTID"] = dfc["PROJECTID"].astype(int)
-    dfc = dfc.loc[dfc["PROJECTID"] == int(project_id)].copy()
+    dfc["PROJECTID"] = dfc["PROJECTID"].astype(str)
+    dfc = dfc.loc[dfc["PROJECTID"] == project_id].copy()
     if dfc.empty:
         return
 
@@ -211,7 +207,7 @@ def replace_project_analysis_mysql(engine: Engine, *, project_id: int, analysis_
     if dfc.empty:
         # Still delete prior rows so the DB mirrors the empty result for this project.
         with engine.begin() as conn:
-            conn.execute(text("DELETE FROM analysis WHERE PROJECTID = :project_id"), {"project_id": int(project_id)})
+            conn.execute(text("DELETE FROM analysis WHERE PROJECTID = :project_id"), {"project_id": project_id})
         return
     dfc["PATNO"] = dfc["PATNO"].astype(int)
     dfc["RUNDATE"] = pd.to_datetime(dfc["RUNDATE"], errors="coerce").dt.date
@@ -256,7 +252,7 @@ def replace_project_analysis_mysql(engine: Engine, *, project_id: int, analysis_
         """
     )
     with engine.begin() as conn:
-        conn.execute(delete_sql, {"project_id": int(project_id)})
+        conn.execute(delete_sql, {"project_id": project_id})
         if rows:
             conn.execute(insert_sql, rows)
 
