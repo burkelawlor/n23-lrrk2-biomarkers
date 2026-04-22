@@ -115,7 +115,7 @@ def _normalize_analysis_df(df: pd.DataFrame) -> pd.DataFrame:
     out["TESTVALUE"] = pd.to_numeric(out["TESTVALUE"], errors="coerce")
     out["GBA"] = pd.to_numeric(out["GBA"], errors="coerce")
     out["AGE_AT_VISIT"] = pd.to_numeric(out["AGE_AT_VISIT"], errors="coerce")
-    out["PROJECTID"] = pd.to_numeric(out["PROJECTID"], errors="coerce")
+    out["PROJECTID"] = out["PROJECTID"].astype(str).where(out["PROJECTID"].notna(), other=None)
     out["RUNDATE"] = pd.to_datetime(out["RUNDATE"], errors="coerce")
     out = out.dropna(
         subset=[
@@ -184,11 +184,11 @@ def _get_grouped_testname_select_data() -> tuple[list[dict[str, object]], list[s
 
     df = df.copy()
     df["TESTNAME"] = df["TESTNAME"].astype(str)
-    df["PROJECTID"] = pd.to_numeric(df.get("PROJECTID"), errors="coerce")
+    df["PROJECTID"] = df["PROJECTID"].astype(str).where(df["PROJECTID"].notna(), other=None)
     # Identify testnames that appear in more than one project so we can make the
     # option values unique for Mantine (it does not allow duplicate values).
     per_testname_project_counts = (
-        df.loc[pd.notna(df["PROJECTID"]), ["TESTNAME", "PROJECTID"]]
+        df.loc[df["PROJECTID"].notna(), ["TESTNAME", "PROJECTID"]]
         .drop_duplicates()
         .groupby("TESTNAME")["PROJECTID"]
         .nunique()
@@ -198,14 +198,10 @@ def _get_grouped_testname_select_data() -> tuple[list[dict[str, object]], list[s
     grouped: dict[str, list[dict[str, str]]] = {}
     for row in df.itertuples(index=False):
         group_label = (
-            f"Project {int(row.PROJECTID)}" if pd.notna(row.PROJECTID) else "Project (Unknown)"
+            f"Project {row.PROJECTID}" if row.PROJECTID is not None else "Project (Unknown)"
         )
         testname = str(row.TESTNAME)
-        project_id = (
-            int(pd.to_numeric(row.PROJECTID, errors="coerce"))
-            if pd.notna(row.PROJECTID)
-            else None
-        )
+        project_id = row.PROJECTID
 
         if testname in duplicated_testnames and project_id is not None:
             value = f"{testname}||{project_id}"
@@ -224,7 +220,7 @@ def _get_grouped_testname_select_data() -> tuple[list[dict[str, object]], list[s
     return mantine_data, testnames
 
 
-def _parse_testname_select_value(value: str | None) -> tuple[str | None, int | None]:
+def _parse_testname_select_value(value: str | None) -> tuple[str | None, str | None]:
     """
     The biomarker select value is either:
       - "<TESTNAME>" (unique across projects), or
@@ -237,10 +233,7 @@ def _parse_testname_select_value(value: str | None) -> tuple[str | None, int | N
         return s, None
     left, right = s.rsplit("||", 1)
     left = left.strip()
-    try:
-        pid = int(right.strip())
-    except Exception:
-        pid = None
+    pid = right.strip() or None
     return (left or None), pid
 
 
@@ -254,7 +247,7 @@ except Exception:
 COHORT_VALUES = [c for c in COHORTS["COHORT"]["Order"] if c in _present_cohorts]
 
 
-def _modal_project_id_for_testname(testname: str) -> int | None:
+def _modal_project_id_for_testname(testname: str) -> str | None:
     try:
         q = """
         SELECT PROJECTID, COUNT(*) AS n
@@ -271,10 +264,8 @@ def _modal_project_id_for_testname(testname: str) -> int | None:
 
     if pid_df.empty or "PROJECTID" not in pid_df.columns:
         return None
-    try:
-        return int(pd.to_numeric(pid_df["PROJECTID"].iloc[0], errors="coerce"))
-    except Exception:
-        return None
+    val = pid_df["PROJECTID"].iloc[0]
+    return str(val) if val is not None else None
 
 
 def _transform_radio_value_for_testname(testname_select_value: str | None) -> str:
@@ -580,7 +571,7 @@ def update_biomarker_header(testname: str | None):
         return "", ""
 
     project_id = (
-        int(parsed_project_id)
+        parsed_project_id
         if parsed_project_id is not None
         else _modal_project_id_for_testname(str(parsed_testname))
     )
@@ -612,15 +603,15 @@ def update_biomarker_header(testname: str | None):
 
 
 @memoize(timeout=6 * 60 * 60)
-def _cached_projects_lookup() -> dict[int, dict[str, str]]:
+def _cached_projects_lookup() -> dict[str, dict[str, str]]:
     with _timed("header.projects_lookup.query"):
         return get_projects_lookup(_engine())
 
 
 @memoize(timeout=6 * 60 * 60)
-def _cached_project_rundates(project_id: int) -> dict[str, Any] | None:
-    with _timed("header.project_rundates.query", project_id=int(project_id)):
-        return get_project_rundates_for_project(_engine(), project_id=int(project_id))
+def _cached_project_rundates(project_id: str) -> dict[str, Any] | None:
+    with _timed("header.project_rundates.query", project_id=str(project_id)):
+        return get_project_rundates_for_project(_engine(), project_id=str(project_id))
 
 
 layout = html.Div(

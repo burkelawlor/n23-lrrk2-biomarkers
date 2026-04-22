@@ -20,7 +20,6 @@ python3 scripts/clean_biomarkers.py
 
 Run for a single project with the flag `--project-id`. By default, `scripts/clean_biomarkers.py` loads `.env` and uses `DATABASE_URL` (if set) to also load the cleaned CSV artifacts into MySQL. Override the DB destination by setting `--database-url` to a valid url, or skip DB loading entierly by passing "". 
 
-
 This produces/updates:
 
 - `data/processed/cleaned_biospecimen_analysis.csv`

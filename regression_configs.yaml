@@ -5,7 +5,7 @@ global:
   outlier_handling: none
 
 projectids:
-  145:
+  "PPMI 145":
     log_transform: true
 
 testnames:

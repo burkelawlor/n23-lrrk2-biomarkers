@@ -47,9 +47,9 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--projectid",
-        type=int,
+        type=str,
         default=None,
-        help="If provided, run only this PROJECTID (e.g. --projectid 145).",
+        help="If provided, run only this PROJECTID (e.g. --projectid 'PPMI 145').",
     )
     p.add_argument(
         "--config-yaml",
@@ -119,12 +119,10 @@ def main() -> None:
         )
 
     df = df.copy()
-    df["PROJECTID"] = pd.to_numeric(df["PROJECTID"], errors="coerce")
-    df = df.dropna(subset=["PROJECTID"])
-    df["PROJECTID"] = df["PROJECTID"].astype(int)
+    df["PROJECTID"] = df["PROJECTID"].astype(str)
 
     if args.projectid is not None:
-        df = df.loc[df["PROJECTID"] == int(args.projectid)].copy()
+        df = df.loc[df["PROJECTID"] == args.projectid].copy()
         if df.empty:
             raise ValueError(f"No rows found for PROJECTID={args.projectid}.")
 
@@ -150,7 +148,7 @@ def main() -> None:
         cfg_by_biomarker: dict[str, RegressionConfig] = {}
         for tn in biomarkers:
             cfg_by_biomarker[tn] = effective_config(
-                project_id=int(project_id),
+                project_id=str(project_id),
                 testname=str(tn),
                 global_cfg=global_cfg,
                 project_cfgs=project_cfgs,
@@ -248,14 +246,14 @@ def main() -> None:
         for c in ("TESTNAME",):
             if c not in omnibus_df.columns:
                 raise RuntimeError(f"Expected {c!r} in omnibus output for de-duplication.")
-        omnibus_df = omnibus_df.drop_duplicates(subset=["TESTNAME"], keep="last")
+        omnibus_df = omnibus_df.drop_duplicates(subset=["PROJECTID", "TESTNAME"], keep="last")
 
     if not pairwise_df.empty:
         for c in ("TESTNAME", "comparison"):
             if c not in pairwise_df.columns:
                 raise RuntimeError(f"Expected {c!r} in pairwise output for de-duplication.")
         pairwise_df = pairwise_df.drop_duplicates(
-            subset=["TESTNAME", "comparison"], keep="last"
+            subset=["PROJECTID", "TESTNAME", "comparison"], keep="last"
         )
 
     omnibus_df.to_csv(omnibus_path, index=False)

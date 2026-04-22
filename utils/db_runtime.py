@@ -43,19 +43,18 @@ def get_projects_df(engine: Engine) -> pd.DataFrame:
     return pd.read_sql_query("SELECT PROJECTID, PI_NAME, PI_INSTITUTION FROM projects", engine)
 
 
-def get_projects_lookup(engine: Engine) -> dict[int, dict[str, str]]:
+def get_projects_lookup(engine: Engine) -> dict[str, dict[str, str]]:
     df = get_projects_df(engine)
     if df.empty:
         return {}
-    df["PROJECTID"] = pd.to_numeric(df["PROJECTID"], errors="coerce")
     df = df.dropna(subset=["PROJECTID"])
     if df.empty:
         return {}
-    df["PROJECTID"] = df["PROJECTID"].astype(int)
+    df["PROJECTID"] = df["PROJECTID"].astype(str)
     return df.set_index("PROJECTID")[["PI_NAME", "PI_INSTITUTION"]].fillna("").to_dict(orient="index")
 
 
-def get_project_rundates_lookup(engine: Engine) -> dict[int, dict[str, Any]]:
+def get_project_rundates_lookup(engine: Engine) -> dict[str, dict[str, Any]]:
     q = """
     SELECT PROJECTID, MIN(RUNDATE) AS min_date, MAX(RUNDATE) AS max_date
     FROM analysis
@@ -65,21 +64,20 @@ def get_project_rundates_lookup(engine: Engine) -> dict[int, dict[str, Any]]:
     df = pd.read_sql_query(q, engine)
     if df.empty:
         return {}
-    df["PROJECTID"] = pd.to_numeric(df["PROJECTID"], errors="coerce")
     df = df.dropna(subset=["PROJECTID"])
     if df.empty:
         return {}
-    df["PROJECTID"] = df["PROJECTID"].astype(int)
+    df["PROJECTID"] = df["PROJECTID"].astype(str)
     return df.set_index("PROJECTID")[["min_date", "max_date"]].to_dict(orient="index")
 
 
-def get_project_rundates_for_project(engine: Engine, *, project_id: int) -> dict[str, Any] | None:
+def get_project_rundates_for_project(engine: Engine, *, project_id: str) -> dict[str, Any] | None:
     q = """
     SELECT MIN(RUNDATE) AS min_date, MAX(RUNDATE) AS max_date
     FROM analysis
     WHERE PROJECTID = :project_id AND RUNDATE IS NOT NULL
     """
-    df = pd.read_sql_query(text(q), engine, params={"project_id": int(project_id)})
+    df = pd.read_sql_query(text(q), engine, params={"project_id": project_id})
     if df.empty:
         return None
     row = df.iloc[0].to_dict()

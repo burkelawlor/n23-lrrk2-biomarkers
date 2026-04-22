@@ -16,7 +16,16 @@ dash.register_page(__name__, path="/", name="Home", title="Home | Biomarker Dash
 def _load_projects_table() -> pd.DataFrame:
     engine = get_engine_from_env()
     db_df = get_projects_df(engine)
-    included_ids = set(db_df["PROJECTID"].astype(int))
+    # Build a set of the bare numeric portions of PROJECTID (e.g. "145" from "PPMI 145")
+    # so we can match against the Excel registry which uses plain integers.
+    included_numeric_ids: set[int] = set()
+    for pid in db_df["PROJECTID"].dropna():
+        parts = str(pid).split()
+        for part in parts:
+            try:
+                included_numeric_ids.add(int(part))
+            except ValueError:
+                pass
 
     xlsx_path = Path(__file__).parent.parent / "PPMI Completed and Ongoing Biologic Analyses 042026.xlsx"
     raw = pd.read_excel(xlsx_path, header=0)
@@ -27,7 +36,7 @@ def _load_projects_table() -> pd.DataFrame:
             return False
         for part in str(val).split(","):
             try:
-                if int(part.strip()) in included_ids:
+                if int(part.strip()) in included_numeric_ids:
                     return True
             except ValueError:
                 pass
