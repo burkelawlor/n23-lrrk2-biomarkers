@@ -92,6 +92,7 @@ def fetch_analysis_subset(
     testname: str,
     cohort_filter: list[str] | None,
     gba_filter_mode: str | None,
+    project_id: str | None = None,
     columns: list[str] | None = None,
 ) -> pd.DataFrame:
     cols = columns or [
@@ -127,6 +128,10 @@ def fetch_analysis_subset(
     if gba_filter_mode == "excluded":
         # Keep this portable across MySQL/SQLite by casting to a generic numeric type.
         where_parts.append("(GBA IS NULL OR CAST(GBA AS DECIMAL(10,4)) != 1.0)")
+
+    if project_id is not None:
+        where_parts.append("PROJECTID = :project_id")
+        params["project_id"] = str(project_id)
 
     sql = f"SELECT {select_cols} FROM analysis WHERE {' AND '.join(where_parts)}"
     out = pd.read_sql_query(text(sql), engine, params=params)

@@ -62,8 +62,6 @@ def _extract_project_metadata(df: pd.DataFrame) -> pd.DataFrame:
     """One row per PROJECTID from frames that still carry PI columns."""
     if df.empty or "PROJECTID" not in df.columns:
         return pd.DataFrame(columns=list(_PROJECT_METADATA_COLUMNS))
-    if "PI_NAME" not in df.columns and "PI_INSTITUTION" not in df.columns:
-        return pd.DataFrame(columns=list(_PROJECT_METADATA_COLUMNS))
     sub = df.loc[:, [c for c in _PROJECT_METADATA_COLUMNS if c in df.columns]].copy()
     for c in _PROJECT_METADATA_COLUMNS:
         if c not in sub.columns:
