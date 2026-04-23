@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import urllib.parse
 
 import dash
 import dash_bootstrap_components as dbc
@@ -109,8 +110,15 @@ def _load_df() -> pd.DataFrame:
     return merged
 
 
+def _make_analysis_url(row) -> str:
+    testname = urllib.parse.quote(str(row["TESTNAME"]), safe="")
+    projectid = urllib.parse.quote(str(row["PROJECTID"]), safe="")
+    return f"/analysis?testname={testname}&projectid={projectid}"
+
+
 def _build_table(df: pd.DataFrame):
     display_df = df.copy()
+    display_df["_analysis_url"] = display_df.apply(_make_analysis_url, axis=1)
 
     sciFormatter = {"function": "d3.format('.4')(params.value)"}
     betaFormatter = {"function": "d3.format('.3f')(params.value)"}
@@ -121,7 +129,7 @@ def _build_table(df: pd.DataFrame):
 
     column_defs = [
         {"field": "PROJECTID", "headerName": "PROJECTID", "flex": 1, "minWidth": 110},
-        {"field": "TESTNAME", "headerName": "TESTNAME", "flex": 3, "minWidth": 260},
+        {"field": "TESTNAME", "headerName": "TESTNAME", "flex": 3, "minWidth": 260, "cellRenderer": "TestNameLink"},
         {"field": "n", "headerName": "n_omnibus", "flex": 1, "minWidth": 130, **int_kwgs},
         {"field": "omnibus_pval", "headerName": "pval_omnibus", "flex": 1, "minWidth": 160, **float_kwgs},
         {"field": "omnibus_qval_fdr_bh", "headerName": "qval_omnibus", "flex": 1, "minWidth": 170, **float_kwgs},

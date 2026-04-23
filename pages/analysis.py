@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import logging
 import time
+import urllib.parse
 from contextlib import contextmanager
 from io import StringIO
 from typing import Any
@@ -455,6 +456,30 @@ def _empty_figure(title: str):
     return fig
 
 
+@callback(
+    Output("testname", "value"),
+    Input("analysis-url", "search"),
+    prevent_initial_call=False,
+)
+def set_testname_from_url(search: str | None):
+    if not search:
+        return DEFAULT_TESTNAME
+    params = urllib.parse.parse_qs(search.lstrip("?"))
+    testname = params.get("testname", [None])[0]
+    if not testname:
+        return DEFAULT_TESTNAME
+    testname = urllib.parse.unquote(testname)
+    projectid = params.get("projectid", [None])[0]
+    if projectid:
+        projectid = urllib.parse.unquote(projectid)
+    composite = f"{testname}||{projectid}" if projectid else testname
+    if composite in TESTNAMES:
+        return composite
+    if testname in TESTNAMES:
+        return testname
+    return DEFAULT_TESTNAME
+
+
 @callback(Output("transform", "value"), Input("testname", "value"))
 def set_transform_from_regression_config(testname: str | None):
     return _transform_radio_value_for_testname(testname)
@@ -619,6 +644,7 @@ def _cached_project_rundates(project_id: str) -> dict[str, Any] | None:
 layout = html.Div(
     style={"minHeight": "75vh", "display": "flex", "flexDirection": "column"},
     children=[
+        dcc.Location(id="analysis-url", refresh=False),
         dbc.Row(
             style={"flex": "1 1 auto", "alignItems": "stretch"},
             children=[
