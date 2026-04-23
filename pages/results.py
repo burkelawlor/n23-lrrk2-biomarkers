@@ -156,6 +156,7 @@ def _build_table(df: pd.DataFrame):
         columnSize="sizeToFit",
         columnDefs=column_defs,
         rowData=display_df.where(pd.notna(display_df), None).to_dict("records"),
+        csvExportParams={"fileName": "results_overview.csv"},
         defaultColDef={
             "sortable": True,
             "filter": True,
@@ -206,33 +207,46 @@ layout = dbc.Container(
                     [
                         html.Div(
                             [
-                                html.H4(
-                                    "Results Overview",
-                                    style={"margin": "0", "fontWeight": "600", "color": "#343a40"},
-                                ),
-                                html.P(
-                                    "Interactive view of regression results for omnibus and pairwise (Non vs Predicted, Non vs RV) tests. "
-                                    "Use the column filters and sorting to find biomarkers of interest.",
-                                    style={
-                                        "margin": "6px 0 0 0",
-                                        "fontSize": "14px",
-                                        "color": "#6c757d",
-                                    },
+                                html.Div(
+                                    [
+                                        html.H4(
+                                            "Results Overview",
+                                            style={"margin": "0", "fontWeight": "600", "color": "#343a40"},
+                                        ),
+                                        html.P(
+                                            "Interactive view of regression results for omnibus and pairwise (Non vs Predicted, Non vs RV) tests. "
+                                            "Use the column filters and sorting to find biomarkers of interest.",
+                                            style={
+                                                "margin": "6px 0 0 0",
+                                                "fontSize": "14px",
+                                                "color": "#6c757d",
+                                            },
+                                        ),
+                                        dbc.Button(
+                                            "Show / hide column descriptions",
+                                            id="results-desc-toggle",
+                                            color="link",
+                                            size="sm",
+                                            style={
+                                                "padding": "0",
+                                                "marginTop": "6px",
+                                                "fontSize": "13px",
+                                                "textDecoration": "none",
+                                                "color": "#0d6efd",
+                                            },
+                                        ),
+                                    ]
                                 ),
                                 dbc.Button(
-                                    "Show / hide column descriptions",
-                                    id="results-desc-toggle",
-                                    color="link",
+                                    "Download CSV",
+                                    id="results-download-btn",
+                                    color="secondary",
+                                    outline=True,
                                     size="sm",
-                                    style={
-                                        "padding": "0",
-                                        "marginTop": "6px",
-                                        "fontSize": "13px",
-                                        "textDecoration": "none",
-                                        "color": "#0d6efd",
-                                    },
+                                    style={"whiteSpace": "nowrap"},
                                 ),
-                            ]
+                            ],
+                            style={"display": "flex", "justifyContent": "space-between", "alignItems": "flex-start"},
                         ),
                         dbc.Collapse(
                             html.Div(
@@ -321,3 +335,12 @@ def _toggle_desc(n_clicks):
     # Each click flips the state; derive from click parity so it always works
     # even if the callback fires multiple times.
     return (n_clicks or 0) % 2 == 1
+
+
+@callback(
+    Output("omnibus-grid", "exportDataAsCsv"),
+    Input("results-download-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def _download_csv(n_clicks):
+    return True
