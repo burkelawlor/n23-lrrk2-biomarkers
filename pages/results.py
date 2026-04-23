@@ -176,7 +176,7 @@ def _build_table(df: pd.DataFrame):
             "pagination": True,
             "paginationPageSize": 100,
             "suppressRowClickSelection": True,
-            "sideBar": True,
+            "sideBar": {"toolPanels": ["columns", "filters"], "defaultToolPanel": ""},
             "getRowStyle": {
                 "styleConditions": [
                     {
