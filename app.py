@@ -53,15 +53,6 @@ def _header(app: Dash):
                     style={"display": "flex", "alignItems": "center", "height": "100%", "paddingLeft": "8px"},
                 )
             ),
-            dbc.Col(
-                html.Span(
-                    "PPMI LRRK2",
-                    style={"color": "#888", "fontSize": "12px", "fontStyle": "italic"},
-                ),
-                className="ms-auto",
-                width="auto",
-                style={"display": "flex", "alignItems": "center", "paddingRight": "8px"},
-            ),
         ],
         align="center",
         style={
