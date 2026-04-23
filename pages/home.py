@@ -16,10 +16,11 @@ dash.register_page(__name__, path="/", name="Home", title="Home | Biomarker Dash
 def _load_projects_table() -> pd.DataFrame:
     engine = get_engine_from_env()
     db_df = get_projects_df(engine)
-    # Build a set of the bare numeric portions of PROJECTID (e.g. "145" from "PPMI 145")
+    # Build a set of the bare numeric portions of PPMI PROJECTIDs (e.g. "145" from "PPMI 145")
     # so we can match against the Excel registry which uses plain integers.
+    ppmi_df = db_df[db_df["PROJECTID"].str.startswith("PPMI ", na=False)]
     included_numeric_ids: set[int] = set()
-    for pid in db_df["PROJECTID"].dropna():
+    for pid in ppmi_df["PROJECTID"].dropna():
         parts = str(pid).split()
         for part in parts:
             try:
@@ -47,7 +48,40 @@ def _load_projects_table() -> pd.DataFrame:
     return filtered[cols].reset_index(drop=True)
 
 
+def _load_lcc_projects_table() -> pd.DataFrame:
+    engine = get_engine_from_env()
+    db_df = get_projects_df(engine)
+    # Extract numeric IDs from LCC projects (e.g. "LCC 108" → 108)
+    lcc_df = db_df[db_df["PROJECTID"].str.startswith("LCC ", na=False)]
+    included_numeric_ids: set[int] = set()
+    for pid in lcc_df["PROJECTID"].dropna():
+        parts = str(pid).split()
+        for part in parts:
+            try:
+                included_numeric_ids.add(int(part))
+            except ValueError:
+                pass
+
+    xlsx_path = Path(__file__).parent.parent / "LCC_final_project_summary.xlsx"
+    raw = pd.read_excel(xlsx_path, sheet_name="LCC Projects", header=0)
+
+    def matches(val) -> bool:
+        if pd.isna(val):
+            return False
+        # "108 phase 3" → 108; 108 → 108
+        try:
+            numeric_prefix = int(str(val).split()[0])
+        except (ValueError, IndexError):
+            return False
+        return numeric_prefix in included_numeric_ids
+
+    filtered = raw[raw["Project ID"].apply(matches)].copy()
+    cols = ["Project ID", "Project type", "PI", "Institution", "Sample type(s)", "Test name(s)"]
+    return filtered[cols].reset_index(drop=True)
+
+
 _projects_df = _load_projects_table()
+_lcc_projects_df = _load_lcc_projects_table()
 
 
 # ── shared style tokens ──────────────────────────────────────────────────────
@@ -210,14 +244,14 @@ layout = dbc.Container(
                 html.Hr(style=_DIVIDER),
                 html.Div(style={"marginBottom": "28px"}),
 
-                # Included projects
+                # Included PPMI projects
                 dbc.Row(
                     dbc.Col(
                         [
                             html.Div(
                                 [
                                     html.H5(
-                                        "Included Projects",
+                                        "Included PPMI Projects",
                                         style={
                                             "fontWeight": 700,
                                             "color": "#1a2b3c",
@@ -238,6 +272,57 @@ layout = dbc.Container(
                             html.Div(
                                 dbc.Table.from_dataframe(
                                     _projects_df,
+                                    striped=False,
+                                    bordered=False,
+                                    hover=True,
+                                    size="sm",
+                                    class_name="align-middle",
+                                ),
+                                style={
+                                    "overflowX": "auto",
+                                    "border": "1px solid #e2e8f0",
+                                    "borderRadius": "8px",
+                                    "fontSize": "0.82rem",
+                                },
+                            ),
+                        ],
+                        lg=12,
+                    ),
+                    style={"marginBottom": "32px"},
+                ),
+
+                # Thin divider
+                html.Hr(style=_DIVIDER),
+                html.Div(style={"marginBottom": "28px"}),
+
+                # Included LCC projects
+                dbc.Row(
+                    dbc.Col(
+                        [
+                            html.Div(
+                                [
+                                    html.H5(
+                                        "Included LCC Projects",
+                                        style={
+                                            "fontWeight": 700,
+                                            "color": "#1a2b3c",
+                                            "marginBottom": "4px",
+                                        },
+                                    ),
+                                    html.P(
+                                        "LCC biologic analyses included in this dashboard, sourced from the "
+                                        "LCC project summary.",
+                                        style={
+                                            "color": "#6c757d",
+                                            "fontSize": "0.875rem",
+                                            "marginBottom": "16px",
+                                        },
+                                    ),
+                                ]
+                            ),
+                            html.Div(
+                                dbc.Table.from_dataframe(
+                                    _lcc_projects_df,
                                     striped=False,
                                     bordered=False,
                                     hover=True,
