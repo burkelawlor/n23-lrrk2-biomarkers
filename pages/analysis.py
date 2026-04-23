@@ -802,14 +802,34 @@ def update_figures(
         colors = [palette[i % len(palette)] for i in range(len(hist_labels))]
 
     with _timed("figures.distplot.build", nrows=int(len(dff))):
-        dist_fig = ff.create_distplot(
-            hist_data=hist_data,
-            group_labels=hist_labels,
-            colors=colors,
-            show_hist=True,
-            show_rug=False,
-            bin_size=freedman_bin_width(dff[x_col]),
-        )
+        # Filter out groups with constant values (zero variance) — KDE fails on these
+        kde_mask = [len(set(d)) > 1 for d in hist_data]
+        kde_hist_data = [d for d, ok in zip(hist_data, kde_mask) if ok]
+        kde_labels = [lbl for lbl, ok in zip(hist_labels, kde_mask) if ok]
+        kde_colors = [c for c, ok in zip(colors, kde_mask) if ok]
+        try:
+            dist_fig = ff.create_distplot(
+                hist_data=kde_hist_data,
+                group_labels=kde_labels,
+                colors=kde_colors,
+                show_hist=True,
+                show_rug=False,
+                bin_size=freedman_bin_width(dff[x_col]),
+            )
+            # Add back constant-value groups as histogram-only traces
+            for d, lbl, clr in zip(hist_data, hist_labels, colors):
+                if len(set(d)) <= 1:
+                    dist_fig.add_bar(x=d, name=lbl, marker_color=clr, showlegend=True)
+        except Exception:
+            dist_fig = ff.create_distplot(
+                hist_data=hist_data,
+                group_labels=hist_labels,
+                colors=colors,
+                show_hist=True,
+                show_rug=False,
+                show_curve=False,
+                bin_size=freedman_bin_width(dff[x_col]),
+            )
     dist_fig.update_layout(
         template="plotly_white",
         title="Histogram",
