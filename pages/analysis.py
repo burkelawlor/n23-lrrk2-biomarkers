@@ -483,6 +483,7 @@ def _filtered_df(
     testname: str,
     cohort_filter: list[str] | None,
     gba_filter_mode: str | None,
+    project_id: str | None = None,
 ) -> pd.DataFrame:
     with _timed(
         "analysis.fetch_subset",
@@ -495,6 +496,7 @@ def _filtered_df(
             testname=str(testname),
             cohort_filter=cohort_filter,
             gba_filter_mode=gba_filter_mode,
+            project_id=project_id,
         )
     if dff.empty:
         return dff
@@ -713,10 +715,10 @@ def load_analysis_subset_store(
     cohort_filter: list[str] | None,
     gba_filter_mode: str | None,
 ):
-    parsed_testname, _parsed_project_id = _parse_testname_select_value(testname)
+    parsed_testname, parsed_project_id = _parse_testname_select_value(testname)
     if not parsed_testname:
         return None
-    dff = _filtered_df(str(parsed_testname), cohort_filter, gba_filter_mode)
+    dff = _filtered_df(str(parsed_testname), cohort_filter, gba_filter_mode, project_id=parsed_project_id)
     if dff.empty:
         return None
     with _timed("analysis.store.serialize", nrows=int(len(dff))):
