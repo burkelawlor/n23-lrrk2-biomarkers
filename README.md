@@ -18,11 +18,11 @@ For all biomarkers:
 python3 scripts/clean_biomarkers.py
 ```
 
-For a single clearner, use flag `--cleaner`. Check `scripts/clean_biomarkers.py` for a list of available cleaners.
-
+For a single clearner, use flag `--cleaner`:
 ```bash
 python3 scripts/clean_biomarkers.py --cleaner bulk-ppmi
 ```
+Check `scripts/clean_biomarkers.py` for a list of available cleaners.
 
 By default, `scripts/clean_biomarkers.py` loads `.env` and uses `DATABASE_URL` (if set) to also load the cleaned CSV artifacts into MySQL. Override the DB destination by setting `--database-url` to a valid url, or skip DB loading entierly by passing "". 
 
@@ -49,7 +49,7 @@ python3 scripts/run_biomarker_regression_by_project.py
 Run for a single project:
 
 ```bash
-python3 scripts/run_biomarker_regression_by_project.py --projectid 145
+python3 scripts/run_biomarker_regression_by_project.py --projectid "PPMI 145"
 ```
 
 The results in `output/biomarker_cohort_omnibus.csv` are used in the dashboard’s **Overview** page.
