@@ -12,13 +12,19 @@ docker compose up -d
 
 ### 1) Clean biomarkers
 
-From the repo root:
+For all biomarkers:
 
 ```bash
 python3 scripts/clean_biomarkers.py
 ```
 
-Run for a single project with the flag `--project-id`. By default, `scripts/clean_biomarkers.py` loads `.env` and uses `DATABASE_URL` (if set) to also load the cleaned CSV artifacts into MySQL. Override the DB destination by setting `--database-url` to a valid url, or skip DB loading entierly by passing "". 
+For a single clearner, use flag `--cleaner`. Check `scripts/clean_biomarkers.py` for a list of available cleaners.
+
+```bash
+python3 scripts/clean_biomarkers.py --cleaner bulk-ppmi
+```
+
+By default, `scripts/clean_biomarkers.py` loads `.env` and uses `DATABASE_URL` (if set) to also load the cleaned CSV artifacts into MySQL. Override the DB destination by setting `--database-url` to a valid url, or skip DB loading entierly by passing "". 
 
 This produces/updates:
 
