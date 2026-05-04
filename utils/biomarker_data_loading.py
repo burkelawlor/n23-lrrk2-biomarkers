@@ -48,7 +48,9 @@ def build_ml_df(data_dir: Path) -> pd.DataFrame:
         },
         inplace=True,
     )
-    return ml_df_full[["ID", "RV", "GBA", "PREDICTED", "DRIVEN", "HEURISTIC"]].copy()
+    ml_df_full['FOCUS_ONLY'] = np.select([ml_df_full.RV == 1, ml_df_full.flag_focus == 1], ['RV', 'Predicted'], 'Non')
+    ml_df_full['READOUT_ONLY'] = np.select([ml_df_full.RV == 1, ml_df_full.flag_readout == 1], ['RV', 'Predicted'], 'Non')
+    return ml_df_full[["ID", "RV", "GBA", "PREDICTED", "DRIVEN", "HEURISTIC", "FOCUS_ONLY", "READOUT_ONLY"]].copy()
 
 
 def build_ppmi_df(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
