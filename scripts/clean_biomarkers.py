@@ -13,7 +13,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from utils.biomarker_data_loading import build_ml_df, clean_lcc_bulk, clean_ppmi_151, clean_ppmi_bulk
+from utils.biomarker_data_loading import *
 from utils.data_processing import append_to_cleaned_biospecimen_csv
 
 
@@ -86,6 +86,7 @@ def main() -> None:
         ("bulk-ppmi", clean_ppmi_bulk),
         ("ppmi-151", clean_ppmi_151),
         ("bulk-lcc", clean_lcc_bulk),
+        ("lcc-122", clean_lcc_122),
     ]
 
     if args.cleaner is not None:

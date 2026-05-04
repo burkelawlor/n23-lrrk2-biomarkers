@@ -128,7 +128,7 @@ def _normalize_analysis_df(df: pd.DataFrame) -> pd.DataFrame:
             "SEX",
             "PATNO",
             "PROJECTID",
-            "RUNDATE",
+            # "RUNDATE",
             "AGE_AT_VISIT",
         ]
     )

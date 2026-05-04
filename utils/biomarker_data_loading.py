@@ -15,6 +15,24 @@ def _is_float(val) -> bool:
     except Exception:
         return False
 
+def _make_ratio_data(data, numerator_cols, denominator_cols, testname, subject_id_col='PATNO', event_col='CLINICAL_EVENT'):
+  # Reformat dataframe
+  out = data[data['TESTNAME'].isin(numerator_cols + denominator_cols)] # keep only tests of interest
+  out = out.pivot(index=[subject_id_col, event_col], columns='TESTNAME', values='TESTVALUE').reset_index() # pivot
+  out = out[~out.isna().any(axis=1)] # drop rows with missing values
+
+  # Calculate ratio and format result
+  out['TESTNAME'] = testname
+  out['TESTVALUE'] = out[numerator_cols].sum(axis=1) / out[denominator_cols].sum(axis=1)
+  out['UNITS'] = 'ratio'
+  out = out[[subject_id_col, event_col,'TESTNAME','TESTVALUE','UNITS']]
+
+  # Merge with rest of input data
+  out = pd.merge(data.drop(['TESTNAME','TESTVALUE','UNITS','RUNDATE'], axis=1).drop_duplicates(), out, on=[subject_id_col,event_col], how='right')
+  out['RUNDATE'] = pd.NaT
+
+  return out
+
 
 def build_ml_df(data_dir: Path) -> pd.DataFrame:
     ml_df_full = pd.read_csv(data_dir / "AMPPDv4_LRRK2v4_results_N23.csv")
@@ -33,7 +51,7 @@ def build_ml_df(data_dir: Path) -> pd.DataFrame:
     return ml_df_full[["ID", "RV", "GBA", "PREDICTED", "DRIVEN", "HEURISTIC"]].copy()
 
 
-def _build_ppmi_df(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
+def build_ppmi_df(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
     ml_ppmi = ml_df[ml_df.ID.str.contains("PP-")].copy()
     ml_ppmi["PATNO"] = ml_ppmi.ID.str.strip("PP-").astype(int)
 
@@ -54,9 +72,25 @@ def _build_ppmi_df(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
     ppmi_df["PROJECTID"] = "PPMI " + ppmi_df["PROJECTID"].astype(str)
     return ppmi_df
 
+def build_lcc_df(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
+    df = pd.read_csv(data_dir / "LCC_Biomarkers_compiled_080122.csv", low_memory=False)
+    ml_lcc = ml_df[ml_df.ID.str.startswith("LC-")].copy()
+    ml_lcc["lrrkid"] = ml_lcc.ID.str.replace("LC-", "", regex=False)
+    df = df.merge(
+        ml_lcc[["lrrkid", "RV", "GBA", "PREDICTED", "DRIVEN", "HEURISTIC"]], on="lrrkid", how="left"
+    )
+    df["PROJECTID"] = "LCC " + df["Biomarker_projectID"].astype(str)
+    df["PATNO"] = df["lrrkid"].astype(str)
+    df["SEX"] = df["gender"].map({1.0: "Male", 2.0: "Female"})
+    df["AGE_AT_VISIT"] = df["demopd_ageassess"]
+    df["COHORT"] = df["pdenrl"].map({0.0: "Control", 1.0: "PD"})
+    df.rename(columns={"EVENT": "CLINICAL_EVENT", "Biomarker_sampletype": "TYPE"}, inplace=True)
+    df["TESTNAME"] = df["TESTNAME"].astype(str).str[:255]
+    return df
+
 
 def clean_ppmi_bulk(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
-    df = _build_ppmi_df(data_dir, ml_df)
+    df = build_ppmi_df(data_dir, ml_df)
 
     df["can_float"] = df["TESTVALUE"].apply(_is_float)
     agg_df = df.groupby("PROJECTID").agg(
@@ -66,6 +100,21 @@ def clean_ppmi_bulk(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
     agg_df["percent_non_float"] = agg_df["num_non_float"] / agg_df["num_entries"] * 100
     projects_to_include = agg_df[agg_df["percent_non_float"] < 10].index
     df = df[df.PROJECTID.isin(projects_to_include)].copy()
+
+    df.loc[df["can_float"] == False, "TESTVALUE"] = np.nan  # noqa: E712
+    return df
+
+def clean_lcc_bulk(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
+    df = build_lcc_df(data_dir, ml_df)
+
+    df["can_float"] = df["TESTVALUE"].apply(_is_float)
+    agg_df = df.groupby("Biomarker_projectID").agg(
+        num_entries=("TESTVALUE", "size"),
+        num_non_float=("can_float", lambda x: (~x).sum()),
+    )
+    agg_df["percent_non_float"] = agg_df["num_non_float"] / agg_df["num_entries"] * 100
+    projects_to_include = agg_df[agg_df["percent_non_float"] < 10].index
+    df = df[df["Biomarker_projectID"].isin(projects_to_include)].copy()
 
     df.loc[df["can_float"] == False, "TESTVALUE"] = np.nan  # noqa: E712
     return df
@@ -107,31 +156,14 @@ def clean_ppmi_151(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
     return project_151
 
 
-def clean_lcc_bulk(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
-    df = pd.read_csv(data_dir / "LCC_Biomarkers_compiled_080122.csv", low_memory=False)
+def clean_lcc_122(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
+    df = clean_lcc_bulk(data_dir, ml_df)
+    df = df[df.PROJECTID == 'LCC 122'].copy()
+    df = df[df.UNITS == 'area ratio'].copy()
+    df['TESTVALUE'] = df['TESTVALUE'].astype(float)
 
-    ml_lcc = ml_df[ml_df.ID.str.startswith("LC-")].copy()
-    ml_lcc["lrrkid"] = ml_lcc.ID.str.replace("LC-", "", regex=False)
-    df = df.merge(
-        ml_lcc[["lrrkid", "RV", "GBA", "PREDICTED", "DRIVEN", "HEURISTIC"]], on="lrrkid", how="left"
-    )
-
-    df["can_float"] = df["TESTVALUE"].apply(_is_float)
-    agg_df = df.groupby("Biomarker_projectID").agg(
-        num_entries=("TESTVALUE", "size"),
-        num_non_float=("can_float", lambda x: (~x).sum()),
-    )
-    agg_df["percent_non_float"] = agg_df["num_non_float"] / agg_df["num_entries"] * 100
-    projects_to_include = agg_df[agg_df["percent_non_float"] < 10].index
-    df = df[df["Biomarker_projectID"].isin(projects_to_include)].copy()
-
-    df.loc[df["can_float"] == False, "TESTVALUE"] = np.nan  # noqa: E712
-
-    df["PROJECTID"] = "LCC " + df["Biomarker_projectID"].astype(str)
-    df["PATNO"] = df["lrrkid"].astype(str)
-    df["SEX"] = df["gender"].map({1.0: "Male", 2.0: "Female"})
-    df["AGE_AT_VISIT"] = df["demopd_ageassess"]
-    df["COHORT"] = df["pdenrl"].map({0.0: "Control", 1.0: "PD"})
-    df.rename(columns={"EVENT": "CLINICAL_EVENT", "Biomarker_sampletype": "TYPE"}, inplace=True)
-    df["TESTNAME"] = df["TESTNAME"].astype(str).str[:255]
-    return df
+    r1 = _make_ratio_data(df, ['GlcCer (d18:1, 16:0)','GlcCer (d18:1, 18:0)','GlcCer (d18:1, 24:0)','GlcCer (d18:1, 24:1)'], ['Cer(d18:1/16:0)','Cer(d18:1/18:0)','Cer(d18:1/24:0)','Cer(d18:1/24:1)'], 'GlcCer/Cer')
+    r2 = _make_ratio_data(df, ['Cer(d18:1/16:0)','Cer(d18:1/18:0)','Cer(d18:1/24:0)','Cer(d18:1/24:1)'], ['SM(d18:1/16:0)', 'SM(d18:1/18:0)', 'SM(d18:1/24:0)' ,'SM(d18:1/24:1)'], 'Cer/SM')
+    r3 = _make_ratio_data(df, ['LPC(16:0)', 'LPC(16:1)', 'LPC(18:0)', 'LPC(18:1)', 'LPC(20:4)', 'LPC(22:6)', 'LPC(24:0)', 'LPC(24:1)', 'LPC(26:1)'], ['PC(36:1)', 'PC(36:2)', 'PC(36:4)', 'PC(38:4)', 'PC(38:6)', 'PC(40:6)'], 'LPC/PC')
+    r4 = _make_ratio_data(df, ['LPE(16:0)', 'LPE(18:0)'], ['PE(36:1)', 'PE(36:4)','PE(38:4)', 'PE(38:6)', 'PE(40:6)'], 'LPE/PE')
+    return pd.concat([df, r1, r2, r3, r4])
