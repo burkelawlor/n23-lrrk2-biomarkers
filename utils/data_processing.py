@@ -36,6 +36,7 @@ _DEFAULT_DEDUPE_SUBSET: tuple[str, ...] = (
     "PROJECTID",
     "PATNO",
     "TESTNAME",
+    "UNITS",
     "CLINICAL_EVENT",
     "TYPE",
     "RUNDATE",

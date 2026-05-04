@@ -30,6 +30,7 @@ class PairwiseResult:
     beta: float
     pval: float
     effect_size_std: float
+    units: Optional[str] = None
     mean_diff_raw: Optional[float] = None
     beta_ci_low: Optional[float] = None
     beta_ci_high: Optional[float] = None
@@ -323,6 +324,7 @@ def run_biomarker_by_biomarker_cohort_regressions(
     sex_col: str = "SEX",
     age_col: str = "AGE_AT_VISIT",
     z_col: str = "TESTVALUE_Z",
+    units_col: str = "UNITS",
     alpha: float = 0.05,
     add_conf_int: bool = False,
     include_raw_mean_diff: bool = True,
@@ -375,10 +377,24 @@ def run_biomarker_by_biomarker_cohort_regressions(
     omnibus_rows: list[dict[str, object]] = []
     pairwise_rows: list[PairwiseResult] = []
 
-    biomarker_levels = list(dfp[testname_col].dropna().unique())
+    _use_units = units_col in dfp.columns
+    if _use_units:
+        _pairs = (
+            dfp[[testname_col, units_col]]
+            .dropna(subset=[testname_col])
+            .drop_duplicates()
+        )
+        biomarker_levels = list(_pairs.itertuples(index=False, name=None))
+    else:
+        biomarker_levels = [(b, None) for b in dfp[testname_col].dropna().unique()]
 
-    for biomarker in biomarker_levels:
-        dfb = dfp.loc[dfp[testname_col] == biomarker].copy()
+    for biomarker, units_val in biomarker_levels:
+        if _use_units and units_val is not None:
+            dfb = dfp.loc[
+                (dfp[testname_col] == biomarker) & (dfp[units_col] == units_val)
+            ].copy()
+        else:
+            dfb = dfp.loc[dfp[testname_col] == biomarker].copy()
 
         # Recast for contrasts; the model fit will further restrict levels.
         present_cohorts = [c for c in cohort_levels if c in set(dfb[cohort_col].dropna().unique())]
@@ -388,6 +404,7 @@ def run_biomarker_by_biomarker_cohort_regressions(
                 {
                     "cohort_col": cohort_col,
                     testname_col: biomarker,
+                    units_col: units_val,
                     "n": float(len(dfb)),
                     "omnibus_pval": float("nan"),
                 }
@@ -397,6 +414,7 @@ def run_biomarker_by_biomarker_cohort_regressions(
                 pairwise_rows.append(
                     PairwiseResult(
                         testname=biomarker,
+                        units=units_val,
                         comparison=f"{a} vs {b}",
                         n=float("nan"),
                         beta=float("nan"),
@@ -455,6 +473,7 @@ def run_biomarker_by_biomarker_cohort_regressions(
             {
                 "cohort_col": cohort_col,
                 testname_col: biomarker,
+                units_col: units_val,
                 "n": n_omnibus,
                 "omnibus_pval": omnibus_p,
             }
@@ -473,6 +492,7 @@ def run_biomarker_by_biomarker_cohort_regressions(
                 pairwise_rows.append(
                     PairwiseResult(
                         testname=biomarker,
+                        units=units_val,
                         comparison=comparison_label,
                         n=float("nan"),
                         beta=float("nan"),
@@ -532,6 +552,7 @@ def run_biomarker_by_biomarker_cohort_regressions(
             pairwise_rows.append(
                 PairwiseResult(
                     testname=biomarker,
+                    units=units_val,
                     comparison=comparison_label,
                     n=n_pairwise,
                     beta=beta,
@@ -553,13 +574,22 @@ def run_biomarker_by_biomarker_cohort_regressions(
     pairwise_df["pval"] = pd.to_numeric(pairwise_df["pval"], errors="coerce")
     pairwise_df["qval_fdr_bh"] = _bh_fdr(pairwise_df["pval"])
 
-    # Rename TESTNAME column to match requested output.
-    pairwise_df = pairwise_df.rename(columns={"testname": testname_col})
+    # Rename internal field names to canonical output column names.
+    pairwise_df = pairwise_df.rename(columns={"testname": testname_col, "units": units_col})
+    omnibus_df = omnibus_df.rename(columns={testname_col: "TESTNAME", units_col: "UNITS"})
+    pairwise_df = pairwise_df.rename(columns={testname_col: "TESTNAME", units_col: "UNITS"})
 
-    # Match requested column names.
-    pairwise_df = pairwise_df.rename(columns={"effect_size_std": "effect_size_std"})
-    omnibus_df = omnibus_df.rename(columns={testname_col: "TESTNAME"})
-    pairwise_df = pairwise_df.rename(columns={testname_col: "TESTNAME"})
+    # Place UNITS immediately after TESTNAME in both outputs.
+    for name in ("omnibus_df", "pairwise_df"):
+        _df = omnibus_df if name == "omnibus_df" else pairwise_df
+        if "UNITS" in _df.columns:
+            cols = list(_df.columns)
+            cols.remove("UNITS")
+            cols.insert(cols.index("TESTNAME") + 1, "UNITS")
+            if name == "omnibus_df":
+                omnibus_df = _df[cols]
+            else:
+                pairwise_df = _df[cols]
 
     if not include_raw_mean_diff and "mean_diff_raw" in pairwise_df.columns:
         pairwise_df = pairwise_df.drop(columns=["mean_diff_raw"])

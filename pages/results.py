@@ -71,10 +71,16 @@ def _load_df() -> pd.DataFrame:
         return omnibus_df
 
     pairwise_df = pd.read_csv(_PAIRWISE_PATH)
+
+    # Backfill UNITS column for CSVs generated before UNITS was part of the schema.
+    for _df in (omnibus_df, pairwise_df):
+        if "UNITS" not in _df.columns:
+            _df["UNITS"] = None
+
     pairwise_non_vs_pred = pairwise_df.loc[pairwise_df["comparison"] == "Non vs Predicted"].copy()
     pairwise_non_vs_rv = pairwise_df.loc[pairwise_df["comparison"] == "Non vs RV"].copy()
 
-    merge_keys = ["PROJECTID", "TESTNAME", "gba_included", "log_transform", "pd_only"]
+    merge_keys = ["PROJECTID", "TESTNAME", "UNITS", "gba_included", "log_transform", "pd_only"]
     pairwise_non_vs_pred = pairwise_non_vs_pred[
         merge_keys + ["pval", "qval_fdr_bh", "n", "effect_size_std"]
     ].rename(
@@ -113,7 +119,8 @@ def _load_df() -> pd.DataFrame:
 def _make_analysis_url(row) -> str:
     testname = urllib.parse.quote(str(row["TESTNAME"]), safe="")
     projectid = urllib.parse.quote(str(row["PROJECTID"]), safe="")
-    return f"/analysis?testname={testname}&projectid={projectid}"
+    units = urllib.parse.quote(str(row.get("UNITS", "") or ""), safe="")
+    return f"/analysis?testname={testname}&projectid={projectid}&units={units}"
 
 
 def _build_table(df: pd.DataFrame):
@@ -130,6 +137,7 @@ def _build_table(df: pd.DataFrame):
     column_defs = [
         {"field": "PROJECTID", "headerName": "PROJECTID", "flex": 1, "minWidth": 110},
         {"field": "TESTNAME", "headerName": "TESTNAME", "flex": 3, "minWidth": 260, "cellRenderer": "TestNameLink"},
+        {"field": "UNITS", "headerName": "UNITS", "flex": 1, "minWidth": 120, "filter": "agSetColumnFilter"},
         {"field": "n", "headerName": "n_omnibus", "flex": 1, "minWidth": 130, **int_kwgs},
         {"field": "omnibus_pval", "headerName": "pval_omnibus", "flex": 1, "minWidth": 160, **float_kwgs},
         {"field": "omnibus_qval_fdr_bh", "headerName": "qval_omnibus", "flex": 1, "minWidth": 170, **float_kwgs},

@@ -151,17 +151,22 @@ _GLOBAL_CFG, _PROJECT_CFGS, _TEST_CFGS = load_regression_configs(_REGRESSION_CON
 
 def _get_grouped_testname_select_data() -> tuple[list[dict[str, object]], list[str]]:
     """
-    Returns (mantine_data, flat_testnames).
+    Returns (mantine_data, flat_values).
 
+    Each dropdown item represents a unique (TESTNAME, UNITS) combination.
     Mantine grouped data looks like:
       [{"group": "Project 145", "items": [{"value": "...", "label": "..."}, ...]}, ...]
+
+    Value encoding:
+      - Unique (TESTNAME, UNITS) across all projects: "TESTNAME||UNITS"
+      - Duplicate (TESTNAME, UNITS) across projects: "TESTNAME||UNITS||PROJECTID"
     """
     try:
         q = """
-        SELECT DISTINCT PROJECTID, TESTNAME
+        SELECT DISTINCT PROJECTID, TESTNAME, UNITS
         FROM analysis
         WHERE TESTNAME IS NOT NULL
-        ORDER BY PROJECTID, TESTNAME
+        ORDER BY PROJECTID, TESTNAME, UNITS
         """
         with _timed("testname_select.grouped_options.query"):
             df = pd.read_sql_query(text(q), _engine())
@@ -185,16 +190,20 @@ def _get_grouped_testname_select_data() -> tuple[list[dict[str, object]], list[s
 
     df = df.copy()
     df["TESTNAME"] = df["TESTNAME"].astype(str)
+    df["UNITS"] = df["UNITS"].astype(str).where(df["UNITS"].notna(), other="")
     df["PROJECTID"] = df["PROJECTID"].astype(str).where(df["PROJECTID"].notna(), other=None)
-    # Identify testnames that appear in more than one project so we can make the
-    # option values unique for Mantine (it does not allow duplicate values).
-    per_testname_project_counts = (
-        df.loc[df["PROJECTID"].notna(), ["TESTNAME", "PROJECTID"]]
+
+    # Identify (TESTNAME, UNITS) pairs that appear in more than one project so we can
+    # make option values unique for Mantine (it does not allow duplicate values).
+    per_pair_project_counts = (
+        df.loc[df["PROJECTID"].notna(), ["TESTNAME", "UNITS", "PROJECTID"]]
         .drop_duplicates()
-        .groupby("TESTNAME")["PROJECTID"]
+        .groupby(["TESTNAME", "UNITS"])["PROJECTID"]
         .nunique()
     )
-    duplicated_testnames = set(per_testname_project_counts[per_testname_project_counts > 1].index)
+    duplicated_pairs = set(
+        per_pair_project_counts[per_pair_project_counts > 1].index.tolist()
+    )
 
     grouped: dict[str, list[dict[str, str]]] = {}
     for row in df.itertuples(index=False):
@@ -202,40 +211,41 @@ def _get_grouped_testname_select_data() -> tuple[list[dict[str, object]], list[s
             f"Project {row.PROJECTID}" if row.PROJECTID is not None else "Project (Unknown)"
         )
         testname = str(row.TESTNAME)
+        units = str(row.UNITS) if hasattr(row, "UNITS") else ""
         project_id = row.PROJECTID
+        label_base = f"{testname} [{units}]" if units else testname
 
-        if testname in duplicated_testnames and project_id is not None:
-            value = f"{testname}||{project_id}"
-            label = f"{testname} (project {project_id})"
+        if (testname, units) in duplicated_pairs and project_id is not None:
+            value = f"{testname}||{units}||{project_id}"
+            label = f"{label_base} (project {project_id})"
         else:
-            value = testname
-            label = testname
+            value = f"{testname}||{units}"
+            label = label_base
 
         grouped.setdefault(group_label, []).append({"label": label, "value": value})
 
     mantine_data: list[dict[str, object]] = [
         {"group": group_label, "items": items} for group_label, items in grouped.items()
     ]
-    # Use the option values (which may be composite) for default selection.
-    testnames: list[str] = [item["value"] for group in mantine_data for item in group["items"]]  # type: ignore[index]
-    return mantine_data, testnames
+    values: list[str] = [item["value"] for group in mantine_data for item in group["items"]]  # type: ignore[index]
+    return mantine_data, values
 
 
-def _parse_testname_select_value(value: str | None) -> tuple[str | None, str | None]:
+def _parse_testname_select_value(value: str | None) -> tuple[str | None, str | None, str | None]:
     """
-    The biomarker select value is either:
-      - "<TESTNAME>" (unique across projects), or
-      - "<TESTNAME>||<PROJECTID>" (only when the TESTNAME is duplicated).
+    The biomarker select value is one of:
+      - "<TESTNAME>||<UNITS>"               (unique across projects)
+      - "<TESTNAME>||<UNITS>||<PROJECTID>"  (when the (TESTNAME, UNITS) pair is duplicated)
+
+    Returns (testname, units, project_id). Any part may be None/empty string.
     """
     if not value:
-        return None, None
-    s = str(value)
-    if "||" not in s:
-        return s, None
-    left, right = s.rsplit("||", 1)
-    left = left.strip()
-    pid = right.strip() or None
-    return (left or None), pid
+        return None, None, None
+    parts = str(value).split("||", 2)
+    testname = parts[0].strip() or None
+    units = parts[1].strip() if len(parts) > 1 else None
+    project_id = parts[2].strip() if len(parts) > 2 else None
+    return testname, (units or None), (project_id or None)
 
 
 TESTNAME_SELECT_DATA, TESTNAMES = _get_grouped_testname_select_data()
@@ -270,7 +280,7 @@ def _modal_project_id_for_testname(testname: str) -> str | None:
 
 
 def _transform_radio_value_for_testname(testname_select_value: str | None) -> str:
-    testname, project_id = _parse_testname_select_value(testname_select_value)
+    testname, _, project_id = _parse_testname_select_value(testname_select_value)
     if not testname:
         return "none"
     cfg = effective_config(
@@ -286,7 +296,7 @@ DEFAULT_TRANSFORM_VALUE = _transform_radio_value_for_testname(DEFAULT_TESTNAME)
 
 
 def _outlier_radio_value_for_testname(testname_select_value: str | None) -> str:
-    testname, project_id = _parse_testname_select_value(testname_select_value)
+    testname, _, project_id = _parse_testname_select_value(testname_select_value)
     if not testname:
         return "std"
     cfg = effective_config(
@@ -472,11 +482,18 @@ def set_testname_from_url(search: str | None):
     projectid = params.get("projectid", [None])[0]
     if projectid:
         projectid = urllib.parse.unquote(projectid)
-    composite = f"{testname}||{projectid}" if projectid else testname
-    if composite in TESTNAMES:
-        return composite
-    if testname in TESTNAMES:
-        return testname
+    units = params.get("units", [None])[0]
+    if units:
+        units = urllib.parse.unquote(units)
+    # Try the most-specific composite first, then fall back to less specific.
+    for candidate in [
+        f"{testname}||{units}||{projectid}" if (units and projectid) else None,
+        f"{testname}||{units}" if units else None,
+        f"{testname}||{projectid}" if projectid else None,
+        testname,
+    ]:
+        if candidate and candidate in TESTNAMES:
+            return candidate
     return DEFAULT_TESTNAME
 
 
@@ -509,6 +526,7 @@ def _filtered_df(
     cohort_filter: list[str] | None,
     gba_filter_mode: str | None,
     project_id: str | None = None,
+    units_val: str | None = None,
 ) -> pd.DataFrame:
     with _timed(
         "analysis.fetch_subset",
@@ -522,6 +540,7 @@ def _filtered_df(
             cohort_filter=cohort_filter,
             gba_filter_mode=gba_filter_mode,
             project_id=project_id,
+            units_val=units_val,
         )
     if dff.empty:
         return dff
@@ -559,9 +578,10 @@ def _build_model_df(
     gba_filter_mode: str | None,
     transform: str | None,
     outlier_handling: str | None,
+    units_val: str | None = None,
 ) -> tuple[pd.DataFrame, str, str]:
     group_col = groupby if groupby in {"COHORT", "HEURISTIC"} else "COHORT"
-    base = _filtered_df(testname, cohort_filter, gba_filter_mode).copy()
+    base = _filtered_df(testname, cohort_filter, gba_filter_mode, units_val=units_val).copy()
     model_df, testvalue_col = _apply_transform_and_outliers(base, transform, outlier_handling)
     return model_df, group_col, testvalue_col
 
@@ -593,7 +613,7 @@ def _group_config(group_col: str, dff: pd.DataFrame, selected_cohorts: list[str]
     Input("testname", "value"),
 )
 def update_biomarker_header(testname: str | None):
-    parsed_testname, parsed_project_id = _parse_testname_select_value(testname)
+    parsed_testname, _, parsed_project_id = _parse_testname_select_value(testname)
     if not parsed_testname:
         return "", ""
 
@@ -741,10 +761,10 @@ def load_analysis_subset_store(
     cohort_filter: list[str] | None,
     gba_filter_mode: str | None,
 ):
-    parsed_testname, parsed_project_id = _parse_testname_select_value(testname)
+    parsed_testname, parsed_units, parsed_project_id = _parse_testname_select_value(testname)
     if not parsed_testname:
         return None
-    dff = _filtered_df(str(parsed_testname), cohort_filter, gba_filter_mode, project_id=parsed_project_id)
+    dff = _filtered_df(str(parsed_testname), cohort_filter, gba_filter_mode, project_id=parsed_project_id, units_val=parsed_units)
     if dff.empty:
         return None
     with _timed("analysis.store.serialize", nrows=int(len(dff))):
@@ -1052,7 +1072,7 @@ def download_filtered_data(
     transform: str | None,
     outlier_handling: str | None,
 ):
-    parsed_testname, parsed_project_id = _parse_testname_select_value(testname)
+    parsed_testname, parsed_units, parsed_project_id = _parse_testname_select_value(testname)
     if not parsed_testname:
         return None
 
@@ -1063,6 +1083,7 @@ def download_filtered_data(
         gba_filter_mode,
         transform,
         outlier_handling,
+        units_val=parsed_units,
     )
     if model_df.empty:
         return None

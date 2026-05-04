@@ -93,6 +93,7 @@ def fetch_analysis_subset(
     cohort_filter: list[str] | None,
     gba_filter_mode: str | None,
     project_id: str | None = None,
+    units_val: str | None = None,
     columns: list[str] | None = None,
 ) -> pd.DataFrame:
     cols = columns or [
@@ -132,6 +133,10 @@ def fetch_analysis_subset(
     if project_id is not None:
         where_parts.append("PROJECTID = :project_id")
         params["project_id"] = str(project_id)
+
+    if units_val is not None:
+        where_parts.append("UNITS = :units_val")
+        params["units_val"] = str(units_val)
 
     sql = f"SELECT {select_cols} FROM analysis WHERE {' AND '.join(where_parts)}"
     out = pd.read_sql_query(text(sql), engine, params=params)
