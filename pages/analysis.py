@@ -215,12 +215,11 @@ def _get_grouped_testname_select_data() -> tuple[list[dict[str, object]], list[s
         project_id = row.PROJECTID
         label_base = f"{testname} [{units}]" if units else testname
 
-        if (testname, units) in duplicated_pairs and project_id is not None:
+        if project_id is not None:
             value = f"{testname}||{units}||{project_id}"
-            label = f"{label_base} (project {project_id})"
         else:
             value = f"{testname}||{units}"
-            label = label_base
+        label = f"{label_base} (project {project_id})" if (testname, units) in duplicated_pairs and project_id is not None else label_base
 
         grouped.setdefault(group_label, []).append({"label": label, "value": value})
 
