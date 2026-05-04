@@ -7,7 +7,7 @@ This repo contains data cleaning, code to run regression analyses, and a Plotly 
 Make sure MySQL is running. The cleaner will use `DATABASE_URL` from your environment (recommended: store it in `.env` in the repo root).
 
 ```bash
-docker compose up -d
+docker-compose up -d
 ```
 
 ### 1) Clean biomarkers
@@ -19,9 +19,11 @@ python3 scripts/clean_biomarkers.py
 ```
 
 For a single clearner, use flag `--cleaner`:
+
 ```bash
 python3 scripts/clean_biomarkers.py --cleaner bulk-ppmi
 ```
+
 Check `scripts/clean_biomarkers.py` for a list of available cleaners.
 
 By default, `scripts/clean_biomarkers.py` loads `.env` and uses `DATABASE_URL` (if set) to also load the cleaned CSV artifacts into MySQL. Override the DB destination by setting `--database-url` to a valid url, or skip DB loading entierly by passing "". 
@@ -32,6 +34,14 @@ This produces/updates:
 - `data/processed/cleaned_biospecimen_projects.csv`
 
 If your raw files live somewhere other than `data/raw`, pass `--data-dir`.
+
+
+
+To clear
+
+```bash
+docker exec biomarkers-mysql mysql -u biomarkers -pbiomarkers biomarkers -e "DROP TABLE IF EXISTS analysis; DROP TABLE IF EXISTS projects; SHOW TABLES;"
+```
 
 ### 2) Run regressions
 
