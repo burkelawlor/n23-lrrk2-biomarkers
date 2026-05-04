@@ -771,6 +771,84 @@ def load_analysis_subset_store(
         return dff.to_json(date_format="iso", orient="split")
 
 
+def _add_pvalue_brackets(
+    fig,
+    pairwise_df: pd.DataFrame,
+    group_order: list[str],
+    dff: pd.DataFrame,
+    x_col: str,
+    group_col: str,
+) -> None:
+    """Add pairwise p-value bracket annotations to a boxplot figure in-place."""
+    if pairwise_df is None or pairwise_df.empty or len(group_order) < 2:
+        return
+
+    x_pos_map = {grp: idx for idx, grp in enumerate(group_order)}
+    y_vals = dff[x_col].dropna()
+    if y_vals.empty:
+        return
+
+    y_data_max = float(y_vals.max())
+    y_data_min = float(y_vals.min())
+    data_range = y_data_max - y_data_min if y_data_max != y_data_min else abs(y_data_max) or 1.0
+    bracket_step = data_range * 0.14
+    tick_len = bracket_step * 0.3
+
+    # Parse comparisons from pairwise_df (format: "A vs B")
+    parsed = []
+    for _, row in pairwise_df.iterrows():
+        comp = str(row.get("comparison", ""))
+        if " vs " not in comp:
+            continue
+        a, b = comp.split(" vs ", 1)
+        a, b = a.strip(), b.strip()
+        if a not in x_pos_map or b not in x_pos_map:
+            continue
+        pos_a, pos_b = x_pos_map[a], x_pos_map[b]
+        if pos_a > pos_b:
+            pos_a, pos_b = pos_b, pos_a
+        parsed.append({"pos0": pos_a, "pos1": pos_b, "span": pos_b - pos_a, "pval": row.get("pval")})
+
+    # Sort: shorter spans first so inner brackets sit lower (no crossing)
+    parsed.sort(key=lambda c: (c["span"], c["pos0"]))
+
+    y_base = y_data_max + bracket_step * 0.5
+    line_style = dict(color="black", width=1.5)
+
+    for i, comp in enumerate(parsed):
+        y_top = y_base + bracket_step * i
+        y_tick_top = y_top - tick_len
+        x0, x1 = float(comp["pos0"]), float(comp["pos1"])
+        x_mid = (x0 + x1) / 2.0
+
+        try:
+            pv = float(comp["pval"])
+            if pv < 0.001:
+                pval_text = f"p={pv:.2e}"
+            elif pv < 0.01:
+                pval_text = f"p={pv:.4f}"
+            else:
+                pval_text = f"p={pv:.3f}"
+        except (TypeError, ValueError):
+            pval_text = "p=N/A"
+
+        fig.add_shape(type="line", xref="x", yref="y", x0=x0, y0=y_tick_top, x1=x0, y1=y_top, line=line_style)
+        fig.add_shape(type="line", xref="x", yref="y", x0=x0, y0=y_top, x1=x1, y1=y_top, line=line_style)
+        fig.add_shape(type="line", xref="x", yref="y", x0=x1, y0=y_top, x1=x1, y1=y_tick_top, line=line_style)
+        fig.add_annotation(
+            x=x_mid, y=y_top,
+            xref="x", yref="y",
+            text=pval_text,
+            showarrow=False,
+            font=dict(size=11, color="black"),
+            yshift=6,
+        )
+
+    if parsed:
+        y_ceil = y_base + bracket_step * (len(parsed) + 0.5)
+        fig.update_yaxes(range=[y_data_min - data_range * 0.05, y_ceil])
+
+
 @callback(
     [Output("hist", "figure"), Output("box", "figure")],
     [
@@ -876,6 +954,31 @@ def update_figures(
         showlegend=False,
     )
     box_fig.update_traces(hovertemplate=f"{group_col}=%{{x}}<br>Value=%{{y}}<extra></extra>")
+
+    # Add pairwise p-value bracket annotations
+    if len(group_order) >= 2:
+        if group_col == "COHORT":
+            pw_cohort_categories = [c for c in COHORTS["COHORT"]["Order"] if c in (cohort_filter or [])]
+        else:
+            _present = set(dff[group_col].astype(str).unique().tolist())
+            pw_cohort_categories = [c for c in COHORTS["HEURISTIC"]["Order"] if c in _present]
+            pw_cohort_categories += sorted([c for c in _present if c not in set(COHORTS["HEURISTIC"]["Order"])])
+        z_col = "LOG_TESTVALUE_Z" if x_col == "LOG_TESTVALUE" else "TESTVALUE_Z"
+        try:
+            with _timed("figures.box.pvalue_brackets", nrows=int(len(dff))):
+                _, pw_df = run_biomarker_by_biomarker_cohort_regressions(
+                    dff,
+                    standardize_within_biomarker=True,
+                    cohort_col=group_col,
+                    cohort_categories=pw_cohort_categories,
+                    testvalue_col=x_col,
+                    z_col=z_col,
+                    outlier_handling="none",
+                )
+            _add_pvalue_brackets(box_fig, pw_df, group_order, dff, x_col, group_col)
+        except Exception:
+            pass
+
     return dist_fig, box_fig
 
 
