@@ -128,7 +128,7 @@ def _normalize_analysis_df(df: pd.DataFrame) -> pd.DataFrame:
             "SEX",
             "PATNO",
             "PROJECTID",
-            "RUNDATE",
+            # "RUNDATE",
             "AGE_AT_VISIT",
         ]
     )
@@ -151,17 +151,22 @@ _GLOBAL_CFG, _PROJECT_CFGS, _TEST_CFGS = load_regression_configs(_REGRESSION_CON
 
 def _get_grouped_testname_select_data() -> tuple[list[dict[str, object]], list[str]]:
     """
-    Returns (mantine_data, flat_testnames).
+    Returns (mantine_data, flat_values).
 
+    Each dropdown item represents a unique (TESTNAME, UNITS) combination.
     Mantine grouped data looks like:
       [{"group": "Project 145", "items": [{"value": "...", "label": "..."}, ...]}, ...]
+
+    Value encoding:
+      - Unique (TESTNAME, UNITS) across all projects: "TESTNAME||UNITS"
+      - Duplicate (TESTNAME, UNITS) across projects: "TESTNAME||UNITS||PROJECTID"
     """
     try:
         q = """
-        SELECT DISTINCT PROJECTID, TESTNAME
+        SELECT DISTINCT PROJECTID, TESTNAME, UNITS
         FROM analysis
         WHERE TESTNAME IS NOT NULL
-        ORDER BY PROJECTID, TESTNAME
+        ORDER BY PROJECTID, TESTNAME, UNITS
         """
         with _timed("testname_select.grouped_options.query"):
             df = pd.read_sql_query(text(q), _engine())
@@ -185,16 +190,20 @@ def _get_grouped_testname_select_data() -> tuple[list[dict[str, object]], list[s
 
     df = df.copy()
     df["TESTNAME"] = df["TESTNAME"].astype(str)
+    df["UNITS"] = df["UNITS"].astype(str).where(df["UNITS"].notna(), other="")
     df["PROJECTID"] = df["PROJECTID"].astype(str).where(df["PROJECTID"].notna(), other=None)
-    # Identify testnames that appear in more than one project so we can make the
-    # option values unique for Mantine (it does not allow duplicate values).
-    per_testname_project_counts = (
-        df.loc[df["PROJECTID"].notna(), ["TESTNAME", "PROJECTID"]]
+
+    # Identify (TESTNAME, UNITS) pairs that appear in more than one project so we can
+    # make option values unique for Mantine (it does not allow duplicate values).
+    per_pair_project_counts = (
+        df.loc[df["PROJECTID"].notna(), ["TESTNAME", "UNITS", "PROJECTID"]]
         .drop_duplicates()
-        .groupby("TESTNAME")["PROJECTID"]
+        .groupby(["TESTNAME", "UNITS"])["PROJECTID"]
         .nunique()
     )
-    duplicated_testnames = set(per_testname_project_counts[per_testname_project_counts > 1].index)
+    duplicated_pairs = set(
+        per_pair_project_counts[per_pair_project_counts > 1].index.tolist()
+    )
 
     grouped: dict[str, list[dict[str, str]]] = {}
     for row in df.itertuples(index=False):
@@ -202,40 +211,40 @@ def _get_grouped_testname_select_data() -> tuple[list[dict[str, object]], list[s
             f"Project {row.PROJECTID}" if row.PROJECTID is not None else "Project (Unknown)"
         )
         testname = str(row.TESTNAME)
+        units = str(row.UNITS) if hasattr(row, "UNITS") else ""
         project_id = row.PROJECTID
+        label_base = f"{testname} [{units}]" if units else testname
 
-        if testname in duplicated_testnames and project_id is not None:
-            value = f"{testname}||{project_id}"
-            label = f"{testname} (project {project_id})"
+        if project_id is not None:
+            value = f"{testname}||{units}||{project_id}"
         else:
-            value = testname
-            label = testname
+            value = f"{testname}||{units}"
+        label = f"{label_base} (project {project_id})" if (testname, units) in duplicated_pairs and project_id is not None else label_base
 
         grouped.setdefault(group_label, []).append({"label": label, "value": value})
 
     mantine_data: list[dict[str, object]] = [
         {"group": group_label, "items": items} for group_label, items in grouped.items()
     ]
-    # Use the option values (which may be composite) for default selection.
-    testnames: list[str] = [item["value"] for group in mantine_data for item in group["items"]]  # type: ignore[index]
-    return mantine_data, testnames
+    values: list[str] = [item["value"] for group in mantine_data for item in group["items"]]  # type: ignore[index]
+    return mantine_data, values
 
 
-def _parse_testname_select_value(value: str | None) -> tuple[str | None, str | None]:
+def _parse_testname_select_value(value: str | None) -> tuple[str | None, str | None, str | None]:
     """
-    The biomarker select value is either:
-      - "<TESTNAME>" (unique across projects), or
-      - "<TESTNAME>||<PROJECTID>" (only when the TESTNAME is duplicated).
+    The biomarker select value is one of:
+      - "<TESTNAME>||<UNITS>"               (unique across projects)
+      - "<TESTNAME>||<UNITS>||<PROJECTID>"  (when the (TESTNAME, UNITS) pair is duplicated)
+
+    Returns (testname, units, project_id). Any part may be None/empty string.
     """
     if not value:
-        return None, None
-    s = str(value)
-    if "||" not in s:
-        return s, None
-    left, right = s.rsplit("||", 1)
-    left = left.strip()
-    pid = right.strip() or None
-    return (left or None), pid
+        return None, None, None
+    parts = str(value).split("||", 2)
+    testname = parts[0].strip() or None
+    units = parts[1].strip() if len(parts) > 1 else None
+    project_id = parts[2].strip() if len(parts) > 2 else None
+    return testname, (units or None), (project_id or None)
 
 
 TESTNAME_SELECT_DATA, TESTNAMES = _get_grouped_testname_select_data()
@@ -270,7 +279,7 @@ def _modal_project_id_for_testname(testname: str) -> str | None:
 
 
 def _transform_radio_value_for_testname(testname_select_value: str | None) -> str:
-    testname, project_id = _parse_testname_select_value(testname_select_value)
+    testname, _, project_id = _parse_testname_select_value(testname_select_value)
     if not testname:
         return "none"
     cfg = effective_config(
@@ -286,7 +295,7 @@ DEFAULT_TRANSFORM_VALUE = _transform_radio_value_for_testname(DEFAULT_TESTNAME)
 
 
 def _outlier_radio_value_for_testname(testname_select_value: str | None) -> str:
-    testname, project_id = _parse_testname_select_value(testname_select_value)
+    testname, _, project_id = _parse_testname_select_value(testname_select_value)
     if not testname:
         return "std"
     cfg = effective_config(
@@ -472,11 +481,18 @@ def set_testname_from_url(search: str | None):
     projectid = params.get("projectid", [None])[0]
     if projectid:
         projectid = urllib.parse.unquote(projectid)
-    composite = f"{testname}||{projectid}" if projectid else testname
-    if composite in TESTNAMES:
-        return composite
-    if testname in TESTNAMES:
-        return testname
+    units = params.get("units", [None])[0]
+    if units:
+        units = urllib.parse.unquote(units)
+    # Try the most-specific composite first, then fall back to less specific.
+    for candidate in [
+        f"{testname}||{units}||{projectid}" if (units and projectid) else None,
+        f"{testname}||{units}" if units else None,
+        f"{testname}||{projectid}" if projectid else None,
+        testname,
+    ]:
+        if candidate and candidate in TESTNAMES:
+            return candidate
     return DEFAULT_TESTNAME
 
 
@@ -509,6 +525,7 @@ def _filtered_df(
     cohort_filter: list[str] | None,
     gba_filter_mode: str | None,
     project_id: str | None = None,
+    units_val: str | None = None,
 ) -> pd.DataFrame:
     with _timed(
         "analysis.fetch_subset",
@@ -522,6 +539,7 @@ def _filtered_df(
             cohort_filter=cohort_filter,
             gba_filter_mode=gba_filter_mode,
             project_id=project_id,
+            units_val=units_val,
         )
     if dff.empty:
         return dff
@@ -559,9 +577,10 @@ def _build_model_df(
     gba_filter_mode: str | None,
     transform: str | None,
     outlier_handling: str | None,
+    units_val: str | None = None,
 ) -> tuple[pd.DataFrame, str, str]:
     group_col = groupby if groupby in {"COHORT", "HEURISTIC"} else "COHORT"
-    base = _filtered_df(testname, cohort_filter, gba_filter_mode).copy()
+    base = _filtered_df(testname, cohort_filter, gba_filter_mode, units_val=units_val).copy()
     model_df, testvalue_col = _apply_transform_and_outliers(base, transform, outlier_handling)
     return model_df, group_col, testvalue_col
 
@@ -593,7 +612,7 @@ def _group_config(group_col: str, dff: pd.DataFrame, selected_cohorts: list[str]
     Input("testname", "value"),
 )
 def update_biomarker_header(testname: str | None):
-    parsed_testname, parsed_project_id = _parse_testname_select_value(testname)
+    parsed_testname, _, parsed_project_id = _parse_testname_select_value(testname)
     if not parsed_testname:
         return "", ""
 
@@ -741,14 +760,92 @@ def load_analysis_subset_store(
     cohort_filter: list[str] | None,
     gba_filter_mode: str | None,
 ):
-    parsed_testname, parsed_project_id = _parse_testname_select_value(testname)
+    parsed_testname, parsed_units, parsed_project_id = _parse_testname_select_value(testname)
     if not parsed_testname:
         return None
-    dff = _filtered_df(str(parsed_testname), cohort_filter, gba_filter_mode, project_id=parsed_project_id)
+    dff = _filtered_df(str(parsed_testname), cohort_filter, gba_filter_mode, project_id=parsed_project_id, units_val=parsed_units)
     if dff.empty:
         return None
     with _timed("analysis.store.serialize", nrows=int(len(dff))):
         return dff.to_json(date_format="iso", orient="split")
+
+
+def _add_pvalue_brackets(
+    fig,
+    pairwise_df: pd.DataFrame,
+    group_order: list[str],
+    dff: pd.DataFrame,
+    x_col: str,
+    group_col: str,
+) -> None:
+    """Add pairwise p-value bracket annotations to a boxplot figure in-place."""
+    if pairwise_df is None or pairwise_df.empty or len(group_order) < 2:
+        return
+
+    x_pos_map = {grp: idx for idx, grp in enumerate(group_order)}
+    y_vals = dff[x_col].dropna()
+    if y_vals.empty:
+        return
+
+    y_data_max = float(y_vals.max())
+    y_data_min = float(y_vals.min())
+    data_range = y_data_max - y_data_min if y_data_max != y_data_min else abs(y_data_max) or 1.0
+    bracket_step = data_range * 0.14
+    tick_len = bracket_step * 0.3
+
+    # Parse comparisons from pairwise_df (format: "A vs B")
+    parsed = []
+    for _, row in pairwise_df.iterrows():
+        comp = str(row.get("comparison", ""))
+        if " vs " not in comp:
+            continue
+        a, b = comp.split(" vs ", 1)
+        a, b = a.strip(), b.strip()
+        if a not in x_pos_map or b not in x_pos_map:
+            continue
+        pos_a, pos_b = x_pos_map[a], x_pos_map[b]
+        if pos_a > pos_b:
+            pos_a, pos_b = pos_b, pos_a
+        parsed.append({"pos0": pos_a, "pos1": pos_b, "span": pos_b - pos_a, "pval": row.get("pval")})
+
+    # Sort: shorter spans first so inner brackets sit lower (no crossing)
+    parsed.sort(key=lambda c: (c["span"], c["pos0"]))
+
+    y_base = y_data_max + bracket_step * 0.5
+    line_style = dict(color="black", width=1.5)
+
+    for i, comp in enumerate(parsed):
+        y_top = y_base + bracket_step * i
+        y_tick_top = y_top - tick_len
+        x0, x1 = float(comp["pos0"]), float(comp["pos1"])
+        x_mid = (x0 + x1) / 2.0
+
+        try:
+            pv = float(comp["pval"])
+            if pv < 0.001:
+                pval_text = f"p={pv:.2e}"
+            elif pv < 0.01:
+                pval_text = f"p={pv:.4f}"
+            else:
+                pval_text = f"p={pv:.3f}"
+        except (TypeError, ValueError):
+            pval_text = "p=N/A"
+
+        fig.add_shape(type="line", xref="x", yref="y", x0=x0, y0=y_tick_top, x1=x0, y1=y_top, line=line_style)
+        fig.add_shape(type="line", xref="x", yref="y", x0=x0, y0=y_top, x1=x1, y1=y_top, line=line_style)
+        fig.add_shape(type="line", xref="x", yref="y", x0=x1, y0=y_top, x1=x1, y1=y_tick_top, line=line_style)
+        fig.add_annotation(
+            x=x_mid, y=y_top,
+            xref="x", yref="y",
+            text=pval_text,
+            showarrow=False,
+            font=dict(size=11, color="black"),
+            yshift=6,
+        )
+
+    if parsed:
+        y_ceil = y_base + bracket_step * (len(parsed) + 0.5)
+        fig.update_yaxes(range=[y_data_min - data_range * 0.05, y_ceil])
 
 
 @callback(
@@ -856,6 +953,31 @@ def update_figures(
         showlegend=False,
     )
     box_fig.update_traces(hovertemplate=f"{group_col}=%{{x}}<br>Value=%{{y}}<extra></extra>")
+
+    # Add pairwise p-value bracket annotations
+    if len(group_order) >= 2:
+        if group_col == "COHORT":
+            pw_cohort_categories = [c for c in COHORTS["COHORT"]["Order"] if c in (cohort_filter or [])]
+        else:
+            _present = set(dff[group_col].astype(str).unique().tolist())
+            pw_cohort_categories = [c for c in COHORTS["HEURISTIC"]["Order"] if c in _present]
+            pw_cohort_categories += sorted([c for c in _present if c not in set(COHORTS["HEURISTIC"]["Order"])])
+        z_col = "LOG_TESTVALUE_Z" if x_col == "LOG_TESTVALUE" else "TESTVALUE_Z"
+        try:
+            with _timed("figures.box.pvalue_brackets", nrows=int(len(dff))):
+                _, pw_df = run_biomarker_by_biomarker_cohort_regressions(
+                    dff,
+                    standardize_within_biomarker=True,
+                    cohort_col=group_col,
+                    cohort_categories=pw_cohort_categories,
+                    testvalue_col=x_col,
+                    z_col=z_col,
+                    outlier_handling="none",
+                )
+            _add_pvalue_brackets(box_fig, pw_df, group_order, dff, x_col, group_col)
+        except Exception:
+            pass
+
     return dist_fig, box_fig
 
 
@@ -1052,7 +1174,7 @@ def download_filtered_data(
     transform: str | None,
     outlier_handling: str | None,
 ):
-    parsed_testname, parsed_project_id = _parse_testname_select_value(testname)
+    parsed_testname, parsed_units, parsed_project_id = _parse_testname_select_value(testname)
     if not parsed_testname:
         return None
 
@@ -1063,6 +1185,7 @@ def download_filtered_data(
         gba_filter_mode,
         transform,
         outlier_handling,
+        units_val=parsed_units,
     )
     if model_df.empty:
         return None

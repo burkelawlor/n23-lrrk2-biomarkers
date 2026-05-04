@@ -243,17 +243,17 @@ def main() -> None:
 
     # De-duplicate across repeated runs.
     if not omnibus_df.empty:
-        for c in ("TESTNAME",):
+        for c in ("TESTNAME", "UNITS"):
             if c not in omnibus_df.columns:
                 raise RuntimeError(f"Expected {c!r} in omnibus output for de-duplication.")
-        omnibus_df = omnibus_df.drop_duplicates(subset=["PROJECTID", "TESTNAME"], keep="last")
+        omnibus_df = omnibus_df.drop_duplicates(subset=["PROJECTID", "TESTNAME", "UNITS"], keep="last")
 
     if not pairwise_df.empty:
-        for c in ("TESTNAME", "comparison"):
+        for c in ("TESTNAME", "UNITS", "comparison"):
             if c not in pairwise_df.columns:
                 raise RuntimeError(f"Expected {c!r} in pairwise output for de-duplication.")
         pairwise_df = pairwise_df.drop_duplicates(
-            subset=["PROJECTID", "TESTNAME", "comparison"], keep="last"
+            subset=["PROJECTID", "TESTNAME", "UNITS", "comparison"], keep="last"
         )
 
     omnibus_df.to_csv(omnibus_path, index=False)

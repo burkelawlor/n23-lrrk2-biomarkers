@@ -102,22 +102,26 @@ def insert_analysis_ignore_duplicates_mysql(engine: Engine, analysis_df: pd.Data
     if analysis_df.empty:
         return
 
-    required = {"PATNO", "PROJECTID", "TESTNAME", "CLINICAL_EVENT", "TYPE", "RUNDATE"}
+    required = {"PATNO", "PROJECTID", "TESTNAME", "CLINICAL_EVENT", "TYPE"}
     missing = required - set(analysis_df.columns)
     if missing:
         raise ValueError(f"analysis insert is missing required columns: {sorted(missing)}")
 
     dfc = analysis_df.copy()
     dfc["PATNO"] = pd.to_numeric(dfc["PATNO"], errors="coerce")
-    dfc = dfc.dropna(subset=["PATNO", "PROJECTID", "TESTNAME", "CLINICAL_EVENT", "TYPE", "RUNDATE"])
+    dfc = dfc.dropna(subset=["PATNO", "PROJECTID", "TESTNAME", "CLINICAL_EVENT", "TYPE"])
     if dfc.empty:
         return
     dfc["PATNO"] = dfc["PATNO"].astype(int)
     dfc["PROJECTID"] = dfc["PROJECTID"].astype(str)
 
-    # MySQL schema stores RUNDATE as DATE.
+    # MySQL schema stores RUNDATE as DATE; computed rows (e.g. ratios) have no RUNDATE.
     dfc["RUNDATE"] = pd.to_datetime(dfc["RUNDATE"], errors="coerce").dt.date
-    dfc = dfc.dropna(subset=["RUNDATE"])
+    # Python-level dedup for null-RUNDATE rows (MySQL unique key allows multiple NULLs).
+    dfc = dfc.drop_duplicates(
+        subset=["PATNO", "PROJECTID", "TESTNAME", "UNITS", "CLINICAL_EVENT", "TYPE"],
+        keep="last",
+    )
     if dfc.empty:
         return
 
@@ -197,25 +201,26 @@ def replace_project_analysis_mysql(engine: Engine, *, project_id: str, analysis_
         return
 
     # Align with insert validation rules and MySQL DATE storage.
-    required = {"PATNO", "PROJECTID", "TESTNAME", "CLINICAL_EVENT", "TYPE", "RUNDATE"}
+    required = {"PATNO", "PROJECTID", "TESTNAME", "CLINICAL_EVENT", "TYPE"}
     missing = required - set(dfc.columns)
     if missing:
         raise ValueError(f"analysis replace is missing required columns: {sorted(missing)}")
 
     dfc["PATNO"] = pd.to_numeric(dfc["PATNO"], errors="coerce")
-    dfc = dfc.dropna(subset=["PATNO", "RUNDATE"])
+    dfc = dfc.dropna(subset=["PATNO"])
     if dfc.empty:
         # Still delete prior rows so the DB mirrors the empty result for this project.
         with engine.begin() as conn:
             conn.execute(text("DELETE FROM analysis WHERE PROJECTID = :project_id"), {"project_id": project_id})
         return
     dfc["PATNO"] = dfc["PATNO"].astype(int)
+    # Computed rows (e.g. ratios) have no RUNDATE; keep them as NULL in MySQL.
     dfc["RUNDATE"] = pd.to_datetime(dfc["RUNDATE"], errors="coerce").dt.date
-    dfc = dfc.dropna(subset=["RUNDATE"])
 
-    # De-duplicate within the project to avoid unique-key conflicts.
+    # De-duplicate within the project; use UNITS instead of RUNDATE so computed
+    # ratio rows (RUNDATE=NULL) are properly collapsed.
     dfc = dfc.drop_duplicates(
-        subset=["PATNO", "PROJECTID", "TESTNAME", "CLINICAL_EVENT", "TYPE", "RUNDATE"],
+        subset=["PATNO", "PROJECTID", "TESTNAME", "UNITS", "CLINICAL_EVENT", "TYPE"],
         keep="last",
     )
 
