@@ -101,6 +101,8 @@ def fetch_analysis_subset(
         "TESTVALUE",
         "COHORT",
         "HEURISTIC",
+        "FOCUS_ONLY",
+        "READOUT_ONLY",
         "GBA",
         "UNITS",
         "RUNDATE",

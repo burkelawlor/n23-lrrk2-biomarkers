@@ -44,6 +44,8 @@ def init_schema(engine: Engine) -> None:
             PREDICTED DOUBLE NULL,
             DRIVEN DOUBLE NULL,
             HEURISTIC VARCHAR(64) NULL,
+            FOCUS_ONLY VARCHAR(64) NULL,
+            READOUT_ONLY VARCHAR(64) NULL,
             UNIQUE KEY uq_analysis_dedupe (PATNO, PROJECTID, TESTNAME, CLINICAL_EVENT, TYPE, RUNDATE),
             KEY idx_analysis_testname (TESTNAME),
             KEY idx_analysis_projectid (PROJECTID),
@@ -142,6 +144,8 @@ def insert_analysis_ignore_duplicates_mysql(engine: Engine, analysis_df: pd.Data
         "PREDICTED",
         "DRIVEN",
         "HEURISTIC",
+        "FOCUS_ONLY",
+        "READOUT_ONLY",
     ]
     rows = _to_records(dfc, columns=cols)
     if not rows:
@@ -151,11 +155,11 @@ def insert_analysis_ignore_duplicates_mysql(engine: Engine, analysis_df: pd.Data
         """
         INSERT IGNORE INTO analysis (
             PATNO, SEX, AGE_AT_VISIT, COHORT, CLINICAL_EVENT, TYPE, TESTNAME, TESTVALUE,
-            UNITS, RUNDATE, PROJECTID, RV, GBA, PREDICTED, DRIVEN, HEURISTIC
+            UNITS, RUNDATE, PROJECTID, RV, GBA, PREDICTED, DRIVEN, HEURISTIC, FOCUS_ONLY, READOUT_ONLY
         )
         VALUES (
             :PATNO, :SEX, :AGE_AT_VISIT, :COHORT, :CLINICAL_EVENT, :TYPE, :TESTNAME, :TESTVALUE,
-            :UNITS, :RUNDATE, :PROJECTID, :RV, :GBA, :PREDICTED, :DRIVEN, :HEURISTIC
+            :UNITS, :RUNDATE, :PROJECTID, :RV, :GBA, :PREDICTED, :DRIVEN, :HEURISTIC, :FOCUS_ONLY, :READOUT_ONLY
         )
         """
     )
@@ -241,6 +245,8 @@ def replace_project_analysis_mysql(engine: Engine, *, project_id: str, analysis_
         "PREDICTED",
         "DRIVEN",
         "HEURISTIC",
+        "FOCUS_ONLY",
+        "READOUT_ONLY",
     ]
     rows = _to_records(dfc, columns=cols)
     delete_sql = text("DELETE FROM analysis WHERE PROJECTID = :project_id")
@@ -248,11 +254,11 @@ def replace_project_analysis_mysql(engine: Engine, *, project_id: str, analysis_
         """
         INSERT INTO analysis (
             PATNO, SEX, AGE_AT_VISIT, COHORT, CLINICAL_EVENT, TYPE, TESTNAME, TESTVALUE,
-            UNITS, RUNDATE, PROJECTID, RV, GBA, PREDICTED, DRIVEN, HEURISTIC
+            UNITS, RUNDATE, PROJECTID, RV, GBA, PREDICTED, DRIVEN, HEURISTIC, FOCUS_ONLY, READOUT_ONLY
         )
         VALUES (
             :PATNO, :SEX, :AGE_AT_VISIT, :COHORT, :CLINICAL_EVENT, :TYPE, :TESTNAME, :TESTVALUE,
-            :UNITS, :RUNDATE, :PROJECTID, :RV, :GBA, :PREDICTED, :DRIVEN, :HEURISTIC
+            :UNITS, :RUNDATE, :PROJECTID, :RV, :GBA, :PREDICTED, :DRIVEN, :HEURISTIC, :FOCUS_ONLY, :READOUT_ONLY
         )
         """
     )

@@ -72,6 +72,22 @@ COHORTS: dict[str, dict[str, object]] = {
             "RV": "#024C4C",
         },
     },
+    "FOCUS_ONLY": {
+        "Order": ["Non", "Predicted", "RV"],
+        "Colors": {
+            "Non": "#F7794F",
+            "Predicted": "#739898",
+            "RV": "#024C4C",
+        },
+    },
+    "READOUT_ONLY": {
+        "Order": ["Non", "Predicted", "RV"],
+        "Colors": {
+            "Non": "#F7794F",
+            "Predicted": "#739898",
+            "RV": "#024C4C",
+        },
+    },
 }
 
 
@@ -107,7 +123,7 @@ def _normalize_analysis_df(df: pd.DataFrame) -> pd.DataFrame:
         "AGE_AT_VISIT",
     ]
     # Optional metadata columns that we want to preserve downstream (eg. for downloads).
-    for optional in ["CLINICAL_EVENT"]:
+    for optional in ["CLINICAL_EVENT", "FOCUS_ONLY", "READOUT_ONLY"]:
         if optional in df.columns and optional not in keep_cols:
             keep_cols.append(optional)
 
@@ -380,6 +396,8 @@ def generate_control_card():
                         id="groupby",
                         options=[
                             {"label": "Classifier result", "value": "HEURISTIC"},
+                            {"label": "Focus only", "value": "FOCUS_ONLY"},
+                            {"label": "Readout only", "value": "READOUT_ONLY"},
                             {"label": "PD Diagnosis", "value": "COHORT"},
                         ],
                         value="HEURISTIC",
@@ -508,14 +526,14 @@ def set_outlier_removal_from_regression_config(testname: str | None):
 
 @callback(Output("cohort_filter", "value"), Input("groupby", "value"))
 def set_default_cohort_filter(groupby: str | None):
-    if groupby == "HEURISTIC":
+    if (groupby == "HEURISTIC") or (groupby == "FOCUS_ONLY") or (groupby == "READOUT_ONLY"):
         return ["PD"] if "PD" in COHORT_VALUES else COHORT_VALUES
     return COHORT_VALUES
 
 
 @callback(Output("gba_filter_mode", "value"), Input("groupby", "value"))
 def set_default_gba_filter_mode(groupby: str | None):
-    if groupby == "HEURISTIC":
+    if (groupby == "HEURISTIC") or (groupby == "FOCUS_ONLY") or (groupby == "READOUT_ONLY"):
         return "excluded"
     return "included"
 
@@ -579,7 +597,7 @@ def _build_model_df(
     outlier_handling: str | None,
     units_val: str | None = None,
 ) -> tuple[pd.DataFrame, str, str]:
-    group_col = groupby if groupby in {"COHORT", "HEURISTIC"} else "COHORT"
+    group_col = groupby if groupby in {"COHORT", "HEURISTIC", "FOCUS_ONLY", "READOUT_ONLY"} else "COHORT"
     base = _filtered_df(testname, cohort_filter, gba_filter_mode, units_val=units_val).copy()
     model_df, testvalue_col = _apply_transform_and_outliers(base, transform, outlier_handling)
     return model_df, group_col, testvalue_col
@@ -885,7 +903,7 @@ def update_figures(
         return empty, empty
     x_label = f"log({testname}) [{unit}]" if x_col == "LOG_TESTVALUE" else f"{testname} [{unit}]"
 
-    group_col = groupby if groupby in {"COHORT", "HEURISTIC"} else "COHORT"
+    group_col = groupby if groupby in {"COHORT", "HEURISTIC", "FOCUS_ONLY", "READOUT_ONLY"} else "COHORT"
     category_orders, color_map = _group_config(group_col, dff, selected_cohorts)
 
     group_order = category_orders.get(group_col, sorted(dff[group_col].unique().tolist()))
@@ -960,8 +978,8 @@ def update_figures(
             pw_cohort_categories = [c for c in COHORTS["COHORT"]["Order"] if c in (cohort_filter or [])]
         else:
             _present = set(dff[group_col].astype(str).unique().tolist())
-            pw_cohort_categories = [c for c in COHORTS["HEURISTIC"]["Order"] if c in _present]
-            pw_cohort_categories += sorted([c for c in _present if c not in set(COHORTS["HEURISTIC"]["Order"])])
+            pw_cohort_categories = [c for c in COHORTS[group_col]["Order"] if c in _present]
+            pw_cohort_categories += sorted([c for c in _present if c not in set(COHORTS[group_col]["Order"])])
         z_col = "LOG_TESTVALUE_Z" if x_col == "LOG_TESTVALUE" else "TESTVALUE_Z"
         try:
             with _timed("figures.box.pvalue_brackets", nrows=int(len(dff))):
@@ -1006,7 +1024,7 @@ def update_stats_table(
     if base.empty:
         return html.Div("No rows match current filters; regression tests are unavailable.")
 
-    group_col = groupby if groupby in {"COHORT", "HEURISTIC"} else "COHORT"
+    group_col = groupby if groupby in {"COHORT", "HEURISTIC", "FOCUS_ONLY", "READOUT_ONLY"} else "COHORT"
     with _timed("stats.apply_transform_outliers", nrows=int(len(base))):
         model_df, testvalue_col = _apply_transform_and_outliers(base, transform, outlier_handling)
     if model_df.empty:
@@ -1018,10 +1036,10 @@ def update_stats_table(
         selected = cohort_filter or []
         cohort_categories = [c for c in COHORTS["COHORT"]["Order"] if c in selected]
     else:
-        present = set(model_df["HEURISTIC"].astype(str).unique().tolist())
-        cohort_categories = [c for c in COHORTS["HEURISTIC"]["Order"] if c in present]
+        present = set(model_df[group_col].astype(str).unique().tolist())
+        cohort_categories = [c for c in COHORTS[group_col]["Order"] if c in present]
         cohort_categories += sorted(
-            [c for c in present if c not in set(COHORTS["HEURISTIC"]["Order"])]
+            [c for c in present if c not in set(COHORTS[group_col]["Order"])]
         )
 
     try:
@@ -1197,6 +1215,8 @@ def download_filtered_data(
         "SEX",
         "COHORT",
         "HEURISTIC",
+        "FOCUS_ONLY",
+        "READOUT_ONLY",
         "GBA",
         "TESTNAME",
         "TESTVALUE",
