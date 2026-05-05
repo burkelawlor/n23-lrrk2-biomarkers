@@ -69,6 +69,11 @@ COHORTS: dict[str, dict[str, object]] = {
         "Order": ["Control", "Prodromal", "PD"],
         "Colors": {"Control": "#1f77b4", "Prodromal": "#ff7f0e", "PD": "#d62728"},
     },
+    "rs76904798": {
+        "Label": "rs76904798",
+        "Order": ["CC", "TC", "TT"],
+        "Colors": {"CC": "#2171B5", "TC": "#74C476", "TT": "#D94801"},
+    },
 }
 
 NON_COHORT_GROUPBYS: frozenset[str] = frozenset(COHORTS) - {"COHORT"}
@@ -106,7 +111,7 @@ def _normalize_analysis_df(df: pd.DataFrame) -> pd.DataFrame:
         "AGE_AT_VISIT",
     ]
     # Optional metadata columns that we want to preserve downstream (eg. for downloads).
-    for optional in ["CLINICAL_EVENT", "FOCUS_ONLY", "READOUT_ONLY"]:
+    for optional in ["CLINICAL_EVENT", "FOCUS_ONLY", "READOUT_ONLY", "rs76904798"]:
         if optional in df.columns and optional not in keep_cols:
             keep_cols.append(optional)
 
@@ -382,6 +387,7 @@ def generate_control_card():
                             {"label": "Focus only", "value": "FOCUS_ONLY"},
                             {"label": "Readout only", "value": "READOUT_ONLY"},
                             {"label": "PD Diagnosis", "value": "COHORT"},
+                            {"label": "rs76904798", "value": "rs76904798"},
                         ],
                         value="HEURISTIC",
                         inline=False,
@@ -1200,6 +1206,7 @@ def download_filtered_data(
         "HEURISTIC",
         "FOCUS_ONLY",
         "READOUT_ONLY",
+        "rs76904798",
         "GBA",
         "TESTNAME",
         "TESTVALUE",

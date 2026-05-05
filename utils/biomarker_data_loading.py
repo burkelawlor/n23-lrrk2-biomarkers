@@ -37,6 +37,7 @@ def _make_ratio_data(data, numerator_cols, denominator_cols, testname, subject_i
 def build_ml_df(data_dir: Path) -> pd.DataFrame:
     ml_df_full = pd.read_csv(data_dir / "AMPPDv4_LRRK2v4_results_N23.csv")
     ml_df_posthoc = pd.read_csv(data_dir / "AMPPDv4_LRRK2v4_results_N23_for_post_hoc.csv")
+    dosage_df = pd.read_csv(data_dir / "amppdv4_lrrk2v4_dosges.csv")
 
     ml_df_full["GBA"] = (~ml_df_full.ID.isin(ml_df_posthoc.ID)).astype(int)
     ml_df_full.rename(
@@ -50,7 +51,13 @@ def build_ml_df(data_dir: Path) -> pd.DataFrame:
     )
     ml_df_full['FOCUS_ONLY'] = np.select([ml_df_full.RV == 1, ml_df_full.flag_focus == 1], ['RV', 'Predicted'], 'Non')
     ml_df_full['READOUT_ONLY'] = np.select([ml_df_full.RV == 1, ml_df_full.flag_readout == 1], ['RV', 'Predicted'], 'Non')
-    return ml_df_full[["ID", "RV", "GBA", "PREDICTED", "DRIVEN", "HEURISTIC", "FOCUS_ONLY", "READOUT_ONLY"]].copy()
+    ml_df_full = ml_df_full.merge(dosage_df[['ID', 'rs76904798_T']], on='ID', how='left')
+    ml_df_full['rs76904798'] = (
+        pd.to_numeric(ml_df_full['rs76904798_T'], errors='coerce')
+        .round()
+        .map({0.0: 'CC', 1.0: 'TC', 2.0: 'TT'})
+    )
+    return ml_df_full[["ID", "RV", "GBA", "PREDICTED", "DRIVEN", "HEURISTIC", "FOCUS_ONLY", "READOUT_ONLY", "rs76904798"]].copy()
 
 
 def build_ppmi_df(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:

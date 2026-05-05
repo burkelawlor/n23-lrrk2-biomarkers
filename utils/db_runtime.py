@@ -103,6 +103,7 @@ def fetch_analysis_subset(
         "HEURISTIC",
         "FOCUS_ONLY",
         "READOUT_ONLY",
+        "rs76904798",
         "GBA",
         "UNITS",
         "RUNDATE",
