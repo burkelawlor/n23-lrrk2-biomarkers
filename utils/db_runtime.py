@@ -86,6 +86,9 @@ def get_project_rundates_for_project(engine: Engine, *, project_id: str) -> dict
     return row
 
 
+_CLINICAL_COLS = {"HEURISTIC", "FOCUS_ONLY", "READOUT_ONLY", "rs76904798", "GBA", "RV", "PREDICTED", "DRIVEN"}
+
+
 def fetch_analysis_subset(
     engine: Engine,
     *,
@@ -113,9 +116,12 @@ def fetch_analysis_subset(
         "AGE_AT_VISIT",
         "CLINICAL_EVENT",
     ]
-    select_cols = ", ".join([c for c in cols])
+    select_cols = ", ".join(
+        f"c.{col}" if col in _CLINICAL_COLS else f"a.{col}"
+        for col in cols
+    )
 
-    where_parts: list[str] = ["TESTNAME = :testname"]
+    where_parts: list[str] = ["a.TESTNAME = :testname"]
     params: dict[str, Any] = {"testname": str(testname)}
 
     selected = cohort_filter or []
@@ -125,23 +131,28 @@ def fetch_analysis_subset(
             key = f"cohort_{i}"
             placeholders.append(f":{key}")
             params[key] = str(val)
-        where_parts.append(f"COHORT IN ({', '.join(placeholders)})")
+        where_parts.append(f"a.COHORT IN ({', '.join(placeholders)})")
     else:
         where_parts.append("1 = 0")
 
     if gba_filter_mode == "excluded":
         # Keep this portable across MySQL/SQLite by casting to a generic numeric type.
-        where_parts.append("(GBA IS NULL OR CAST(GBA AS DECIMAL(10,4)) != 1.0)")
+        where_parts.append("(c.GBA IS NULL OR CAST(c.GBA AS DECIMAL(10,4)) != 1.0)")
 
     if project_id is not None:
-        where_parts.append("PROJECTID = :project_id")
+        where_parts.append("a.PROJECTID = :project_id")
         params["project_id"] = str(project_id)
 
     if units_val is not None:
-        where_parts.append("UNITS = :units_val")
+        where_parts.append("a.UNITS = :units_val")
         params["units_val"] = str(units_val)
 
-    sql = f"SELECT {select_cols} FROM analysis WHERE {' AND '.join(where_parts)}"
+    sql = f"""
+        SELECT {select_cols}
+        FROM analysis a
+        LEFT JOIN clinical c ON a.PATIENTID = c.PATIENTID
+        WHERE {' AND '.join(where_parts)}
+    """
     out = pd.read_sql_query(text(sql), engine, params=params)
     return out
 

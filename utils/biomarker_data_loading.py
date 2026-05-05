@@ -88,6 +88,7 @@ def build_ppmi_df(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
     ppmi_df = results_df.merge(ml_ppmi, on="PATNO", how="left")
     ppmi_df = ppmi_df.merge(age_df, on=["PATNO", "CLINICAL_EVENT"], how="left")
     ppmi_df["PROJECTID"] = "PPMI " + ppmi_df["PROJECTID"].astype(str)
+    ppmi_df["PATIENTID"] = ppmi_df["ID"]
     return ppmi_df
 
 def build_lcc_df(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
@@ -105,11 +106,11 @@ def build_lcc_df(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
     df["COHORT"] = df["pdenrl"].map({0.0: "Control", 1.0: "PD"})
     df.rename(columns={"EVENT": "CLINICAL_EVENT", "Biomarker_sampletype": "TYPE"}, inplace=True)
     df["TESTNAME"] = df["TESTNAME"].astype(str).str[:255]
+    df["PATIENTID"] = "LC-" + df["lrrkid"].astype(str)
     return df
 
 
 def clean_ppmi_bulk(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
-    data_dir = data_dir / "PPMI"
     df = build_ppmi_df(data_dir, ml_df)
 
     df["can_float"] = df["TESTVALUE"].apply(_is_float)
@@ -125,7 +126,6 @@ def clean_ppmi_bulk(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def clean_lcc_bulk(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
-    data_dir = data_dir / "LCC"
     df = build_lcc_df(data_dir, ml_df)
 
     df["can_float"] = df["TESTVALUE"].apply(_is_float)
@@ -175,11 +175,11 @@ def clean_ppmi_151(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
 
     project_151 = project_151.merge(ml_ppmi, on="PATNO", how="left")
     project_151 = project_151.merge(age_df, on=["PATNO", "CLINICAL_EVENT"], how="left")
+    project_151["PATIENTID"] = project_151["ID"]
     return project_151
 
 
 def clean_lcc_122(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
-    data_dir = data_dir / "LCC"
     df = clean_lcc_bulk(data_dir, ml_df)
     df = df[df.PROJECTID == 'LCC 122'].copy()
     df = df[df.UNITS == 'area ratio'].copy()
