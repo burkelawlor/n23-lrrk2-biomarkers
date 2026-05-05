@@ -55,40 +55,23 @@ dash.register_page(
 
 _ENGINE = None
 
+_HEURISTIC_FAMILY_CONFIG: dict[str, object] = {
+    "Order": ["Non", "Predicted", "RV"],
+    "Colors": {"Non": "#F7794F", "Predicted": "#739898", "RV": "#024C4C"},
+}
+
 COHORTS: dict[str, dict[str, object]] = {
+    "HEURISTIC":    {"Label": "Classifier result", **_HEURISTIC_FAMILY_CONFIG},
+    "FOCUS_ONLY":   {"Label": "Focus only",        **_HEURISTIC_FAMILY_CONFIG},
+    "READOUT_ONLY": {"Label": "Readout only",      **_HEURISTIC_FAMILY_CONFIG},
     "COHORT": {
+        "Label": "PD Diagnosis",
         "Order": ["Control", "Prodromal", "PD"],
-        "Colors": {
-            "Control": "#1f77b4",
-            "Prodromal": "#ff7f0e",
-            "PD": "#d62728",
-        },
-    },
-    "HEURISTIC": {
-        "Order": ["Non", "Predicted", "RV"],
-        "Colors": {
-            "Non": "#F7794F",
-            "Predicted": "#739898",
-            "RV": "#024C4C",
-        },
-    },
-    "FOCUS_ONLY": {
-        "Order": ["Non", "Predicted", "RV"],
-        "Colors": {
-            "Non": "#F7794F",
-            "Predicted": "#739898",
-            "RV": "#024C4C",
-        },
-    },
-    "READOUT_ONLY": {
-        "Order": ["Non", "Predicted", "RV"],
-        "Colors": {
-            "Non": "#F7794F",
-            "Predicted": "#739898",
-            "RV": "#024C4C",
-        },
+        "Colors": {"Control": "#1f77b4", "Prodromal": "#ff7f0e", "PD": "#d62728"},
     },
 }
+
+NON_COHORT_GROUPBYS: frozenset[str] = frozenset(COHORTS) - {"COHORT"}
 
 
 def _normalize_analysis_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -526,14 +509,14 @@ def set_outlier_removal_from_regression_config(testname: str | None):
 
 @callback(Output("cohort_filter", "value"), Input("groupby", "value"))
 def set_default_cohort_filter(groupby: str | None):
-    if (groupby == "HEURISTIC") or (groupby == "FOCUS_ONLY") or (groupby == "READOUT_ONLY"):
+    if groupby in NON_COHORT_GROUPBYS:
         return ["PD"] if "PD" in COHORT_VALUES else COHORT_VALUES
     return COHORT_VALUES
 
 
 @callback(Output("gba_filter_mode", "value"), Input("groupby", "value"))
 def set_default_gba_filter_mode(groupby: str | None):
-    if (groupby == "HEURISTIC") or (groupby == "FOCUS_ONLY") or (groupby == "READOUT_ONLY"):
+    if groupby in NON_COHORT_GROUPBYS:
         return "excluded"
     return "included"
 
@@ -597,7 +580,7 @@ def _build_model_df(
     outlier_handling: str | None,
     units_val: str | None = None,
 ) -> tuple[pd.DataFrame, str, str]:
-    group_col = groupby if groupby in {"COHORT", "HEURISTIC", "FOCUS_ONLY", "READOUT_ONLY"} else "COHORT"
+    group_col = groupby if groupby in COHORTS else "COHORT"
     base = _filtered_df(testname, cohort_filter, gba_filter_mode, units_val=units_val).copy()
     model_df, testvalue_col = _apply_transform_and_outliers(base, transform, outlier_handling)
     return model_df, group_col, testvalue_col
@@ -903,7 +886,7 @@ def update_figures(
         return empty, empty
     x_label = f"log({testname}) [{unit}]" if x_col == "LOG_TESTVALUE" else f"{testname} [{unit}]"
 
-    group_col = groupby if groupby in {"COHORT", "HEURISTIC", "FOCUS_ONLY", "READOUT_ONLY"} else "COHORT"
+    group_col = groupby if groupby in COHORTS else "COHORT"
     category_orders, color_map = _group_config(group_col, dff, selected_cohorts)
 
     group_order = category_orders.get(group_col, sorted(dff[group_col].unique().tolist()))
@@ -1024,7 +1007,7 @@ def update_stats_table(
     if base.empty:
         return html.Div("No rows match current filters; regression tests are unavailable.")
 
-    group_col = groupby if groupby in {"COHORT", "HEURISTIC", "FOCUS_ONLY", "READOUT_ONLY"} else "COHORT"
+    group_col = groupby if groupby in COHORTS else "COHORT"
     with _timed("stats.apply_transform_outliers", nrows=int(len(base))):
         model_df, testvalue_col = _apply_transform_and_outliers(base, transform, outlier_handling)
     if model_df.empty:
