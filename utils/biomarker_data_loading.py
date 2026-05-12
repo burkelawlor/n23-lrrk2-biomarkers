@@ -103,7 +103,6 @@ def build_lcc_df(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
     df["PATNO"] = df["lrrkid"].astype(str)
     df["SEX"] = df["gender"].map({1.0: "Male", 2.0: "Female"})
     df["AGE_AT_VISIT"] = df["demopd_ageassess"]
-    df["COHORT"] = df["pdenrl"].map({0.0: "Control", 1.0: "PD"})
     df.rename(columns={"EVENT": "CLINICAL_EVENT", "Biomarker_sampletype": "TYPE"}, inplace=True)
     df["TESTNAME"] = df["TESTNAME"].astype(str).str[:255]
     df["PATIENTID"] = "LC-" + df["lrrkid"].astype(str)

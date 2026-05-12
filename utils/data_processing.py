@@ -16,7 +16,6 @@ _CANONICAL_CLEANED_BIOSPECIMEN_COLUMNS: tuple[str, ...] = (
     "PATIENTID",
     "SEX",
     "AGE_AT_VISIT",
-    "COHORT",
     "CLINICAL_EVENT",
     "TYPE",
     "TESTNAME",

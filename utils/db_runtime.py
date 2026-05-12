@@ -86,7 +86,7 @@ def get_project_rundates_for_project(engine: Engine, *, project_id: str) -> dict
     return row
 
 
-_CLINICAL_COLS = {"HEURISTIC", "FOCUS_ONLY", "READOUT_ONLY", "rs76904798", "GBA", "RV", "PREDICTED", "DRIVEN"}
+_CLINICAL_COLS = {"CASE_CONTROL", "HEURISTIC", "FOCUS_ONLY", "READOUT_ONLY", "rs76904798", "GBA", "RV", "PREDICTED", "DRIVEN"}
 
 
 def fetch_analysis_subset(
@@ -102,7 +102,7 @@ def fetch_analysis_subset(
     cols = columns or [
         "TESTNAME",
         "TESTVALUE",
-        "COHORT",
+        "CASE_CONTROL",
         "HEURISTIC",
         "FOCUS_ONLY",
         "READOUT_ONLY",
@@ -131,7 +131,7 @@ def fetch_analysis_subset(
             key = f"cohort_{i}"
             placeholders.append(f":{key}")
             params[key] = str(val)
-        where_parts.append(f"a.COHORT IN ({', '.join(placeholders)})")
+        where_parts.append(f"c.CASE_CONTROL IN ({', '.join(placeholders)})")
     else:
         where_parts.append("1 = 0")
 

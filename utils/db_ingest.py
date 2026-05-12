@@ -30,6 +30,7 @@ def init_schema(engine: Engine) -> None:
         """
         CREATE TABLE IF NOT EXISTS clinical (
             PATIENTID VARCHAR(32) NOT NULL PRIMARY KEY,
+            CASE_CONTROL VARCHAR(64) NULL,
             RV DOUBLE NULL,
             GBA DOUBLE NULL,
             PREDICTED DOUBLE NULL,
@@ -47,7 +48,6 @@ def init_schema(engine: Engine) -> None:
             PATIENTID VARCHAR(32) NULL,
             SEX VARCHAR(32) NULL,
             AGE_AT_VISIT DOUBLE NULL,
-            COHORT VARCHAR(64) NULL,
             CLINICAL_EVENT VARCHAR(64) NULL,
             TYPE VARCHAR(64) NULL,
             TESTNAME VARCHAR(255) NULL,
@@ -58,7 +58,6 @@ def init_schema(engine: Engine) -> None:
             UNIQUE KEY uq_analysis_dedupe (PATNO, PROJECTID, TESTNAME, CLINICAL_EVENT, TYPE, RUNDATE),
             KEY idx_analysis_testname (TESTNAME),
             KEY idx_analysis_projectid (PROJECTID),
-            KEY idx_analysis_cohort (COHORT),
             KEY idx_analysis_patientid (PATIENTID),
             KEY idx_analysis_rundate (RUNDATE)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -113,7 +112,7 @@ def upsert_clinical_mysql(engine: Engine, clinical_df: pd.DataFrame) -> None:
     if clinical_df.empty:
         return
     rows = _to_records(clinical_df, columns=[
-        "PATIENTID", "RV", "GBA", "PREDICTED", "DRIVEN",
+        "PATIENTID", "CASE_CONTROL", "RV", "GBA", "PREDICTED", "DRIVEN",
         "HEURISTIC", "FOCUS_ONLY", "READOUT_ONLY", "rs76904798",
     ])
     if not rows:
@@ -121,10 +120,11 @@ def upsert_clinical_mysql(engine: Engine, clinical_df: pd.DataFrame) -> None:
     sql = text(
         """
         INSERT INTO clinical
-            (PATIENTID, RV, GBA, PREDICTED, DRIVEN, HEURISTIC, FOCUS_ONLY, READOUT_ONLY, rs76904798)
+            (PATIENTID, CASE_CONTROL, RV, GBA, PREDICTED, DRIVEN, HEURISTIC, FOCUS_ONLY, READOUT_ONLY, rs76904798)
         VALUES
-            (:PATIENTID, :RV, :GBA, :PREDICTED, :DRIVEN, :HEURISTIC, :FOCUS_ONLY, :READOUT_ONLY, :rs76904798)
+            (:PATIENTID, :CASE_CONTROL, :RV, :GBA, :PREDICTED, :DRIVEN, :HEURISTIC, :FOCUS_ONLY, :READOUT_ONLY, :rs76904798)
         ON DUPLICATE KEY UPDATE
+            CASE_CONTROL=VALUES(CASE_CONTROL),
             RV=VALUES(RV), GBA=VALUES(GBA), PREDICTED=VALUES(PREDICTED), DRIVEN=VALUES(DRIVEN),
             HEURISTIC=VALUES(HEURISTIC), FOCUS_ONLY=VALUES(FOCUS_ONLY),
             READOUT_ONLY=VALUES(READOUT_ONLY), rs76904798=VALUES(rs76904798)
@@ -166,7 +166,6 @@ def insert_analysis_ignore_duplicates_mysql(engine: Engine, analysis_df: pd.Data
         "PATIENTID",
         "SEX",
         "AGE_AT_VISIT",
-        "COHORT",
         "CLINICAL_EVENT",
         "TYPE",
         "TESTNAME",
@@ -182,11 +181,11 @@ def insert_analysis_ignore_duplicates_mysql(engine: Engine, analysis_df: pd.Data
     insert_sql = text(
         """
         INSERT IGNORE INTO analysis (
-            PATNO, PATIENTID, SEX, AGE_AT_VISIT, COHORT, CLINICAL_EVENT, TYPE, TESTNAME, TESTVALUE,
+            PATNO, PATIENTID, SEX, AGE_AT_VISIT, CLINICAL_EVENT, TYPE, TESTNAME, TESTVALUE,
             UNITS, RUNDATE, PROJECTID
         )
         VALUES (
-            :PATNO, :PATIENTID, :SEX, :AGE_AT_VISIT, :COHORT, :CLINICAL_EVENT, :TYPE, :TESTNAME, :TESTVALUE,
+            :PATNO, :PATIENTID, :SEX, :AGE_AT_VISIT, :CLINICAL_EVENT, :TYPE, :TESTNAME, :TESTVALUE,
             :UNITS, :RUNDATE, :PROJECTID
         )
         """
@@ -261,7 +260,6 @@ def replace_project_analysis_mysql(engine: Engine, *, project_id: str, analysis_
         "PATIENTID",
         "SEX",
         "AGE_AT_VISIT",
-        "COHORT",
         "CLINICAL_EVENT",
         "TYPE",
         "TESTNAME",
@@ -275,11 +273,11 @@ def replace_project_analysis_mysql(engine: Engine, *, project_id: str, analysis_
     insert_sql = text(
         """
         INSERT INTO analysis (
-            PATNO, PATIENTID, SEX, AGE_AT_VISIT, COHORT, CLINICAL_EVENT, TYPE, TESTNAME, TESTVALUE,
+            PATNO, PATIENTID, SEX, AGE_AT_VISIT, CLINICAL_EVENT, TYPE, TESTNAME, TESTVALUE,
             UNITS, RUNDATE, PROJECTID
         )
         VALUES (
-            :PATNO, :PATIENTID, :SEX, :AGE_AT_VISIT, :COHORT, :CLINICAL_EVENT, :TYPE, :TESTNAME, :TESTVALUE,
+            :PATNO, :PATIENTID, :SEX, :AGE_AT_VISIT, :CLINICAL_EVENT, :TYPE, :TESTNAME, :TESTVALUE,
             :UNITS, :RUNDATE, :PROJECTID
         )
         """

@@ -94,9 +94,9 @@ def _apply_log_transform(df: pd.DataFrame, *, log_transform: bool) -> pd.DataFra
 def _apply_pd_only_filter(df: pd.DataFrame, *, pd_only: bool) -> pd.DataFrame:
     if not pd_only:
         return df
-    if "COHORT" not in df.columns:
-        raise ValueError("Expected a COHORT column for pd_only=true filtering.")
-    return df.loc[df["COHORT"].astype(str) == "PD"].copy()
+    if "CASE_CONTROL" not in df.columns:
+        raise ValueError("Expected a CASE_CONTROL column for pd_only=true filtering.")
+    return df.loc[df["CASE_CONTROL"].astype(str) == "Case"].copy()
 
 
 def main() -> None:
