@@ -18,6 +18,7 @@ and pass --local-bind-port 3333.
 
 from __future__ import annotations
 
+import argparse
 import sys
 import os
 from pathlib import Path
@@ -28,7 +29,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from utils.db_ingest import load_csv_to_mysql
+from utils.db_ingest import load_csv_to_mysql, upsert_clinical_mysql
 from utils.db_runtime import create_engine_from_url
 
 load_dotenv(".env")
@@ -42,10 +43,14 @@ MYSQL_PASSWORD = os.getenv("PYTHONANYWHERE_MYSQL_PASSWORD")
 
 analysis_csv = str(_REPO_ROOT / "data" / "processed" / "cleaned_biospecimen_analysis.csv")
 projects_csv = str(_REPO_ROOT / "data" / "processed" / "cleaned_biospecimen_projects.csv")
+clinical_csv = _REPO_ROOT / "data" / "processed" / "cleaned_biospecimen_clinical.csv"
 chunksize = 100_000
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--clinical-only", action="store_true", help="Only upsert the clinical table; skip analysis and projects CSVs.")
+    args = parser.parse_args()
 
     sshtunnel.SSH_TIMEOUT = 10.0
     sshtunnel.TUNNEL_TIMEOUT = 10.0
@@ -66,12 +71,18 @@ def main() -> None:
         engine = create_engine_from_url(database_url)
         print("Engine created, starting CSV ingestion...")
 
-        load_csv_to_mysql(
-            engine,
-            analysis_csv_path=analysis_csv,
-            projects_csv_path=projects_csv,
-            chunksize=chunksize,
-        )
+        import pandas as pd
+        clinical_df = pd.read_csv(clinical_csv, low_memory=False)
+        upsert_clinical_mysql(engine, clinical_df)
+        print(f"Upserted {len(clinical_df)} clinical rows.")
+
+        if not args.clinical_only:
+            load_csv_to_mysql(
+                engine,
+                analysis_csv_path=analysis_csv,
+                projects_csv_path=projects_csv,
+                chunksize=chunksize,
+            )
         print("Ingestion complete (PythonAnywhere MySQL via SSH tunnel).")
 
 
