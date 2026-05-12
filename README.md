@@ -35,12 +35,10 @@ This produces/updates:
 
 If your raw files live somewhere other than `data/raw`, pass `--data-dir`.
 
-
-
 To clear
 
 ```bash
-docker exec biomarkers-mysql mysql -u biomarkers -pbiomarkers biomarkers -e "DROP TABLE IF EXISTS analysis; DROP TABLE IF EXISTS projects; SHOW TABLES;"
+docker exec biomarkers-mysql mysql -u biomarkers -pbiomarkers biomarkers -e "DROP TABLE IF EXISTS analysis; DROP TABLE IF EXISTS projects; DROP TABLE IF EXISTS clinical; SHOW TABLES;"
 ```
 
 ### 2) Run regressions
