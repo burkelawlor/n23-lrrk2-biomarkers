@@ -75,6 +75,10 @@ def main() -> None:
         print("Running all cleaners...")
 
     ml_df = build_ml_df(data_dir)
+    clinical_df = ml_df.copy().rename(columns={"ID": "PATIENTID"})
+    clinical_csv = _REPO_ROOT / "data" / "processed" / "cleaned_biospecimen_clinical.csv"
+    clinical_df.to_csv(clinical_csv, index=False)
+    print(f"Wrote clinical CSV: {clinical_csv} ({len(clinical_df)} rows)")
 
     append_kw: dict = {
         "output_path": args.output_analysis_csv,
@@ -114,8 +118,14 @@ def main() -> None:
 
     if args.database_url:
         from utils.db_runtime import create_engine_from_url
+        from utils.db_ingest import init_schema, upsert_clinical_mysql
 
         engine = create_engine_from_url(args.database_url)
+        init_schema(engine)
+
+        upsert_clinical_mysql(engine, clinical_df)
+        print(f"Upserted {len(clinical_df)} clinical rows.")
+
         if args.cleaner is not None and str(args.cleaner) != "bulk-ppmi":
             from utils.db_ingest import replace_project_analysis_mysql, upsert_project_metadata_mysql
 

@@ -64,10 +64,10 @@ COHORTS: dict[str, dict[str, object]] = {
     "HEURISTIC":    {"Label": "Classifier result", **_HEURISTIC_FAMILY_CONFIG},
     "FOCUS_ONLY":   {"Label": "Focus only",        **_HEURISTIC_FAMILY_CONFIG},
     "READOUT_ONLY": {"Label": "Readout only",      **_HEURISTIC_FAMILY_CONFIG},
-    "COHORT": {
-        "Label": "PD Diagnosis",
-        "Order": ["Control", "Prodromal", "PD"],
-        "Colors": {"Control": "#1f77b4", "Prodromal": "#ff7f0e", "PD": "#d62728"},
+    "CASE_CONTROL": {
+        "Label": "Case/Control Status",
+        "Order": ["Control", "Case", "Other"],
+        "Colors": {"Control": "#1f77b4", "Case": "#d62728", "Other": "#ff7f0e"},
     },
     "rs76904798": {
         "Label": "rs76904798",
@@ -76,14 +76,13 @@ COHORTS: dict[str, dict[str, object]] = {
     },
 }
 
-NON_COHORT_GROUPBYS: frozenset[str] = frozenset(COHORTS) - {"COHORT"}
+NON_COHORT_GROUPBYS: frozenset[str] = frozenset(COHORTS) - {"CASE_CONTROL"}
 
 
 def _normalize_analysis_df(df: pd.DataFrame) -> pd.DataFrame:
     required_cols = {
         "TESTNAME",
         "TESTVALUE",
-        "COHORT",
         "HEURISTIC",
         "GBA",
         "UNITS",
@@ -100,7 +99,6 @@ def _normalize_analysis_df(df: pd.DataFrame) -> pd.DataFrame:
     keep_cols = [
         "TESTNAME",
         "TESTVALUE",
-        "COHORT",
         "HEURISTIC",
         "GBA",
         "UNITS",
@@ -111,7 +109,7 @@ def _normalize_analysis_df(df: pd.DataFrame) -> pd.DataFrame:
         "AGE_AT_VISIT",
     ]
     # Optional metadata columns that we want to preserve downstream (eg. for downloads).
-    for optional in ["CLINICAL_EVENT", "FOCUS_ONLY", "READOUT_ONLY", "rs76904798"]:
+    for optional in ["CLINICAL_EVENT", "FOCUS_ONLY", "READOUT_ONLY", "rs76904798", "CASE_CONTROL"]:
         if optional in df.columns and optional not in keep_cols:
             keep_cols.append(optional)
 
@@ -125,7 +123,6 @@ def _normalize_analysis_df(df: pd.DataFrame) -> pd.DataFrame:
     out = out.dropna(
         subset=[
             "TESTNAME",
-            "COHORT",
             "HEURISTIC",
             "GBA",
             "TESTVALUE",
@@ -137,7 +134,6 @@ def _normalize_analysis_df(df: pd.DataFrame) -> pd.DataFrame:
         ]
     )
 
-    out["COHORT"] = out["COHORT"].astype(str)
     out["HEURISTIC"] = out["HEURISTIC"].astype(str)
     out["TESTNAME"] = out["TESTNAME"].astype(str)
     out["SEX"] = out["SEX"].astype(str)
@@ -254,11 +250,11 @@ def _parse_testname_select_value(value: str | None) -> tuple[str | None, str | N
 TESTNAME_SELECT_DATA, TESTNAMES = _get_grouped_testname_select_data()
 DEFAULT_TESTNAME = TESTNAMES[0] if TESTNAMES else None
 try:
-    _cohort_df = pd.read_sql_query("SELECT DISTINCT COHORT FROM analysis", _engine())
-    _present_cohorts = set(_cohort_df["COHORT"].dropna().astype(str).tolist())
+    _cohort_df = pd.read_sql_query("SELECT DISTINCT CASE_CONTROL FROM clinical", _engine())
+    _present_cohorts = set(_cohort_df["CASE_CONTROL"].dropna().astype(str).tolist())
 except Exception:
     _present_cohorts = set()
-COHORT_VALUES = [c for c in COHORTS["COHORT"]["Order"] if c in _present_cohorts]
+COHORT_VALUES = [c for c in COHORTS["CASE_CONTROL"]["Order"] if c in _present_cohorts]
 
 
 def _modal_project_id_for_testname(testname: str) -> str | None:
@@ -386,7 +382,7 @@ def generate_control_card():
                             {"label": "Classifier result", "value": "HEURISTIC"},
                             {"label": "Focus only", "value": "FOCUS_ONLY"},
                             {"label": "Readout only", "value": "READOUT_ONLY"},
-                            {"label": "PD Diagnosis", "value": "COHORT"},
+                            {"label": "Case/Control Status", "value": "CASE_CONTROL"},
                             {"label": "rs76904798", "value": "rs76904798"},
                         ],
                         value="HEURISTIC",
@@ -516,7 +512,7 @@ def set_outlier_removal_from_regression_config(testname: str | None):
 @callback(Output("cohort_filter", "value"), Input("groupby", "value"))
 def set_default_cohort_filter(groupby: str | None):
     if groupby in NON_COHORT_GROUPBYS:
-        return ["PD"] if "PD" in COHORT_VALUES else COHORT_VALUES
+        return ["Case"] if "Case" in COHORT_VALUES else COHORT_VALUES
     return COHORT_VALUES
 
 
@@ -586,17 +582,17 @@ def _build_model_df(
     outlier_handling: str | None,
     units_val: str | None = None,
 ) -> tuple[pd.DataFrame, str, str]:
-    group_col = groupby if groupby in COHORTS else "COHORT"
+    group_col = groupby if groupby in COHORTS else "CASE_CONTROL"
     base = _filtered_df(testname, cohort_filter, gba_filter_mode, units_val=units_val).copy()
     model_df, testvalue_col = _apply_transform_and_outliers(base, transform, outlier_handling)
     return model_df, group_col, testvalue_col
 
 
 def _group_config(group_col: str, dff: pd.DataFrame, selected_cohorts: list[str]):
-    group_col = group_col if group_col in COHORTS else "COHORT"
+    group_col = group_col if group_col in COHORTS else "CASE_CONTROL"
 
     base_order = COHORTS[group_col]["Order"]
-    if group_col == "COHORT":
+    if group_col == "CASE_CONTROL":
         ordered_values = [c for c in base_order if c in (selected_cohorts or [])]
     else:
         present = set(dff[group_col].astype(str).unique().tolist())
@@ -606,7 +602,7 @@ def _group_config(group_col: str, dff: pd.DataFrame, selected_cohorts: list[str]
     category_orders = {group_col: ordered_values}
 
     base_colors: dict[str, str] = COHORTS[group_col]["Colors"]
-    if group_col == "COHORT":
+    if group_col == "CASE_CONTROL":
         color_map = {k: v for k, v in base_colors.items() if k in (selected_cohorts or [])}
     else:
         color_map = base_colors
@@ -892,7 +888,7 @@ def update_figures(
         return empty, empty
     x_label = f"log({testname}) [{unit}]" if x_col == "LOG_TESTVALUE" else f"{testname} [{unit}]"
 
-    group_col = groupby if groupby in COHORTS else "COHORT"
+    group_col = groupby if groupby in COHORTS else "CASE_CONTROL"
     category_orders, color_map = _group_config(group_col, dff, selected_cohorts)
 
     group_order = category_orders.get(group_col, sorted(dff[group_col].unique().tolist()))
@@ -963,8 +959,8 @@ def update_figures(
 
     # Add pairwise p-value bracket annotations
     if len(group_order) >= 2:
-        if group_col == "COHORT":
-            pw_cohort_categories = [c for c in COHORTS["COHORT"]["Order"] if c in (cohort_filter or [])]
+        if group_col == "CASE_CONTROL":
+            pw_cohort_categories = [c for c in COHORTS["CASE_CONTROL"]["Order"] if c in (cohort_filter or [])]
         else:
             _present = set(dff[group_col].astype(str).unique().tolist())
             pw_cohort_categories = [c for c in COHORTS[group_col]["Order"] if c in _present]
@@ -1013,7 +1009,7 @@ def update_stats_table(
     if base.empty:
         return html.Div("No rows match current filters; regression tests are unavailable.")
 
-    group_col = groupby if groupby in COHORTS else "COHORT"
+    group_col = groupby if groupby in COHORTS else "CASE_CONTROL"
     with _timed("stats.apply_transform_outliers", nrows=int(len(base))):
         model_df, testvalue_col = _apply_transform_and_outliers(base, transform, outlier_handling)
     if model_df.empty:
@@ -1021,9 +1017,9 @@ def update_stats_table(
 
     z_col = "LOG_TESTVALUE_Z" if testvalue_col == "LOG_TESTVALUE" else "TESTVALUE_Z"
 
-    if group_col == "COHORT":
+    if group_col == "CASE_CONTROL":
         selected = cohort_filter or []
-        cohort_categories = [c for c in COHORTS["COHORT"]["Order"] if c in selected]
+        cohort_categories = [c for c in COHORTS["CASE_CONTROL"]["Order"] if c in selected]
     else:
         present = set(model_df[group_col].astype(str).unique().tolist())
         cohort_categories = [c for c in COHORTS[group_col]["Order"] if c in present]
@@ -1110,7 +1106,7 @@ def update_stats_table(
     table_rows: list[dict[str, object]] = [
         {
             "type": "omnibus",
-            "comparison": "All cohorts (F-test)" if group_col == "COHORT" else "All groups (F-test)",
+            "comparison": "All cohorts (F-test)" if group_col == "CASE_CONTROL" else "All groups (F-test)",
             "n": int(omnibus_n),
             "beta": None,
             "pval": _format_pval(omnibus_pval),
@@ -1202,7 +1198,7 @@ def download_filtered_data(
         "CLINICAL_EVENT",
         "AGE_AT_VISIT",
         "SEX",
-        "COHORT",
+        "CASE_CONTROL",
         "HEURISTIC",
         "FOCUS_ONLY",
         "READOUT_ONLY",

@@ -13,24 +13,15 @@ import pandas as pd
 _CANONICAL_CLEANED_BIOSPECIMEN_COLUMNS: tuple[str, ...] = (
     "PROJECTID",
     "PATNO",
+    "PATIENTID",
     "SEX",
     "AGE_AT_VISIT",
-    "COHORT",
     "CLINICAL_EVENT",
     "TYPE",
     "TESTNAME",
     "TESTVALUE",
     "UNITS",
     "RUNDATE",
-    # "update_stamp",
-    "RV",
-    "GBA",
-    "PREDICTED",
-    "DRIVEN",
-    "HEURISTIC",
-    "FOCUS_ONLY",
-    "READOUT_ONLY",
-    "rs76904798",
 )
 
 _PROJECT_METADATA_COLUMNS: tuple[str, ...] = ("PROJECTID", "PI_NAME", "PI_INSTITUTION")

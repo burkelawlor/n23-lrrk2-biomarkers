@@ -94,9 +94,9 @@ def _apply_log_transform(df: pd.DataFrame, *, log_transform: bool) -> pd.DataFra
 def _apply_pd_only_filter(df: pd.DataFrame, *, pd_only: bool) -> pd.DataFrame:
     if not pd_only:
         return df
-    if "COHORT" not in df.columns:
-        raise ValueError("Expected a COHORT column for pd_only=true filtering.")
-    return df.loc[df["COHORT"].astype(str) == "PD"].copy()
+    if "CASE_CONTROL" not in df.columns:
+        raise ValueError("Expected a CASE_CONTROL column for pd_only=true filtering.")
+    return df.loc[df["CASE_CONTROL"].astype(str) == "Case"].copy()
 
 
 def main() -> None:
@@ -112,6 +112,16 @@ def main() -> None:
 
     df = pd.read_csv(input_csv)
     print(f"Loaded {input_csv} with shape={df.shape}")
+
+    clinical_csv = REPO_ROOT / "data" / "processed" / "cleaned_biospecimen_clinical.csv"
+    if not clinical_csv.exists():
+        raise FileNotFoundError(
+            f"Missing clinical CSV: {clinical_csv}. "
+            "Run scripts/clean_biomarkers.py first to generate it."
+        )
+    clinical_df = pd.read_csv(clinical_csv)
+    df = df.merge(clinical_df, on="PATIENTID", how="left")
+    print(f"Merged clinical columns: {list(clinical_df.columns)}")
 
     if "PROJECTID" not in df.columns:
         raise ValueError(

@@ -35,9 +35,10 @@ def _make_ratio_data(data, numerator_cols, denominator_cols, testname, subject_i
 
 
 def build_ml_df(data_dir: Path) -> pd.DataFrame:
+    data_dir = data_dir / "AMPPD"
     ml_df_full = pd.read_csv(data_dir / "AMPPDv4_LRRK2v4_results_N23.csv")
     ml_df_posthoc = pd.read_csv(data_dir / "AMPPDv4_LRRK2v4_results_N23_for_post_hoc.csv")
-    dosage_df = pd.read_csv(data_dir / "amppdv4_lrrk2v4_dosges.csv")
+    
 
     ml_df_full["GBA"] = (~ml_df_full.ID.isin(ml_df_posthoc.ID)).astype(int)
     ml_df_full.rename(
@@ -51,16 +52,24 @@ def build_ml_df(data_dir: Path) -> pd.DataFrame:
     )
     ml_df_full['FOCUS_ONLY'] = np.select([ml_df_full.RV == 1, ml_df_full.flag_focus == 1], ['RV', 'Predicted'], 'Non')
     ml_df_full['READOUT_ONLY'] = np.select([ml_df_full.RV == 1, ml_df_full.flag_readout == 1], ['RV', 'Predicted'], 'Non')
+
+
+    dosage_df = pd.read_csv(data_dir / "amppdv4_lrrk2v4_dosges.csv")
     ml_df_full = ml_df_full.merge(dosage_df[['ID', 'rs76904798_T']], on='ID', how='left')
     ml_df_full['rs76904798'] = (
         pd.to_numeric(ml_df_full['rs76904798_T'], errors='coerce')
         .round()
         .map({0.0: 'CC', 1.0: 'TC', 2.0: 'TT'})
     )
-    return ml_df_full[["ID", "RV", "GBA", "PREDICTED", "DRIVEN", "HEURISTIC", "FOCUS_ONLY", "READOUT_ONLY", "rs76904798"]].copy()
+
+    amp_case_control = pd.read_csv(data_dir / "releases_2023_v4release_1027_amp_pd_case_control.csv")
+    ml_df_full = ml_df_full.merge(amp_case_control, left_on='ID', right_on='participant_id', how='left').rename(columns={'case_control_other_latest':'CASE_CONTROL'})
+    
+    return ml_df_full[["ID", "CASE_CONTROL", "RV", "GBA", "PREDICTED", "DRIVEN", "HEURISTIC", "FOCUS_ONLY", "READOUT_ONLY", "rs76904798"]].copy()
 
 
 def build_ppmi_df(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
+    data_dir = data_dir / "PPMI"
     ml_ppmi = ml_df[ml_df.ID.str.contains("PP-")].copy()
     ml_ppmi["PATNO"] = ml_ppmi.ID.str.strip("PP-").astype(int)
 
@@ -79,9 +88,11 @@ def build_ppmi_df(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
     ppmi_df = results_df.merge(ml_ppmi, on="PATNO", how="left")
     ppmi_df = ppmi_df.merge(age_df, on=["PATNO", "CLINICAL_EVENT"], how="left")
     ppmi_df["PROJECTID"] = "PPMI " + ppmi_df["PROJECTID"].astype(str)
+    ppmi_df["PATIENTID"] = ppmi_df["ID"]
     return ppmi_df
 
 def build_lcc_df(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
+    data_dir = data_dir / "LCC"
     df = pd.read_csv(data_dir / "LCC_Biomarkers_compiled_080122.csv", low_memory=False)
     ml_lcc = ml_df[ml_df.ID.str.startswith("LC-")].copy()
     ml_lcc["lrrkid"] = ml_lcc.ID.str.replace("LC-", "", regex=False)
@@ -92,9 +103,9 @@ def build_lcc_df(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
     df["PATNO"] = df["lrrkid"].astype(str)
     df["SEX"] = df["gender"].map({1.0: "Male", 2.0: "Female"})
     df["AGE_AT_VISIT"] = df["demopd_ageassess"]
-    df["COHORT"] = df["pdenrl"].map({0.0: "Control", 1.0: "PD"})
     df.rename(columns={"EVENT": "CLINICAL_EVENT", "Biomarker_sampletype": "TYPE"}, inplace=True)
     df["TESTNAME"] = df["TESTNAME"].astype(str).str[:255]
+    df["PATIENTID"] = "LC-" + df["lrrkid"].astype(str)
     return df
 
 
@@ -130,6 +141,7 @@ def clean_lcc_bulk(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def clean_ppmi_151(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
+    data_dir = data_dir / "PPMI"
     ml_ppmi = ml_df[ml_df.ID.str.contains("PP-")].copy()
     ml_ppmi["PATNO"] = ml_ppmi.ID.str.strip("PP-").astype(int)
 
@@ -162,6 +174,7 @@ def clean_ppmi_151(data_dir: Path, ml_df: pd.DataFrame) -> pd.DataFrame:
 
     project_151 = project_151.merge(ml_ppmi, on="PATNO", how="left")
     project_151 = project_151.merge(age_df, on=["PATNO", "CLINICAL_EVENT"], how="left")
+    project_151["PATIENTID"] = project_151["ID"]
     return project_151
 
 
